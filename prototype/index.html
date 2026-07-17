@@ -16,6 +16,15 @@
   .panel .num { font-family: Consolas, monospace; }
   #instruments { top: 12px; left: 12px; min-width: 190px; }
   #instruments .alt-big { font-size: 30px; font-family: Consolas, monospace; line-height: 1.1; }
+  #instruments summary.alt-big {
+    cursor: pointer; list-style: none; display: flex; align-items: baseline; gap: 6px;
+  }
+  #instruments summary.alt-big::-webkit-details-marker { display: none; }
+  #instruments summary.alt-big::after {
+    content: '詳細 ▸'; font-size: 11px; font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+    color: #9ecfff; margin-left: auto;
+  }
+  #instruments[open] summary.alt-big::after { content: '閉じる ▾'; }
   #instruments .row { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; }
   .bar { height: 8px; border-radius: 4px; background: #223; margin-top: 2px; overflow: hidden; }
   .bar > div { height: 100%; width: 50%; }
@@ -226,8 +235,8 @@
 <body>
 <div id="app"></div>
 
-<div id="instruments" class="panel">
-  <div class="alt-big"><span id="alt-ft">----</span> ft</div>
+<details id="instruments" class="panel">
+  <summary class="alt-big"><span id="alt-ft">----</span> ft</summary>
   <div class="row"><span>高度(MSL)</span><span class="num"><span id="alt-m">--</span> m</span></div>
   <div class="row"><span>対地高度</span><span class="num"><span id="agl">--</span> m</span></div>
   <div class="row"><span>昇降</span><span class="num"><span id="vario">--</span> m/s</span></div>
@@ -241,7 +250,7 @@
   <div class="row"><span>ターゲット</span><span class="num" id="target-info">---- m / ---°</span></div>
   <div class="row"><span>マーカー</span><span class="num" id="marker-info">残り 1</span></div>
   <div class="row"><span>残り時間</span><span class="num" id="clock">30:00</span></div>
-</div>
+</details>
 
 <div id="areasel" style="display:none">
   <div class="b-panel">

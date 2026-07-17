@@ -429,6 +429,8 @@ addEventListener('keyup', (e) => {
 const isTouchDevice = matchMedia('(hover: none) and (pointer: coarse)').matches;
 if (isTouchDevice) {
   document.getElementById('pibal').style.display = 'none'; // 初期状態は隠して画面を広く使う
+} else {
+  document.getElementById('instruments').open = true; // PCでは計器パネルを開いたまま表示
 }
 function setupTouchControls() {
   function holdButton(btn, onDown, onUp) {
