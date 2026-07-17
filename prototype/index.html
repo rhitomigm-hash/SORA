@@ -34,7 +34,18 @@
   #pibal table { border-collapse: collapse; font-family: Consolas, monospace; font-size: 12px; }
   #pibal th, #pibal td { padding: 2px 8px; text-align: right; border-bottom: 1px solid #345; }
   #pibal .note { font-size: 10px; color: #9ab; margin-top: 4px; }
-  #area-search { top: 12px; left: 50%; transform: translateX(-50%); width: 280px; max-width: min(92vw, 360px); z-index: 5; }
+  #area-search {
+    top: 12px; left: 50%; transform: translateX(-50%); z-index: 5;
+    width: auto; max-width: min(92vw, 360px);
+  }
+  #area-search[open] { width: 280px; }
+  #area-search summary {
+    cursor: pointer; list-style: none; font-size: 13px; white-space: nowrap;
+  }
+  #area-search summary::-webkit-details-marker { display: none; }
+  #area-search summary::after { content: ' ▸'; color: #9ecfff; font-size: 11px; }
+  #area-search[open] summary::after { content: ' ▾'; }
+  #area-search[open] summary { margin-bottom: 6px; }
   #area-search .as-row { display: flex; gap: 6px; }
   #area-search input {
     flex: 1; min-width: 0; padding: 6px 8px; border-radius: 4px; border: 1px solid #345a7a;
@@ -49,8 +60,6 @@
   #area-search-results:empty { margin: 0; }
   #area-search-results li { padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
   #area-search-results li:hover { background: rgba(255, 255, 255, 0.1); }
-  #area-search-results li.as-empty { color: #9ab; cursor: default; }
-  #area-search-results li.as-empty:hover { background: none; }
   #area-search-results li.as-empty { color: #9ab; cursor: default; }
   #area-search-results li.as-empty:hover { background: none; }
   #area-search .as-hint { margin-top: 6px; font-size: 10px; color: #9ab; }
@@ -109,8 +118,15 @@
   #help { bottom: 12px; left: 12px; font-size: 12px; color: #cdd9e4; line-height: 1.6; }
   #help b { color: #ffd54f; font-family: Consolas, monospace; }
   #help a { color: #9ecfff; }
-  #credit { bottom: 12px; right: 12px; font-size: 11px; color: #b8c4d0; }
+  #credit { bottom: 12px; right: 12px; font-size: 11px; color: #b8c4d0; max-width: 260px; }
   #credit a { color: #9ecfff; }
+  #credit summary {
+    cursor: pointer; list-style: none; text-align: right; white-space: nowrap;
+  }
+  #credit summary::-webkit-details-marker { display: none; }
+  #credit summary::after { content: ' ▸'; color: #9ecfff; }
+  #credit[open] summary::after { content: ' ▾'; }
+  #credit[open] summary { margin-bottom: 4px; }
 
   /* ---- タッチ操作用ボタン(スマホ・タブレットでのみ表示) ---- */
   #touch-controls {
@@ -146,12 +162,13 @@
     #instruments { min-width: 128px; }
     #instruments .alt-big { font-size: 22px; }
     #area-search {
-      top: auto; bottom: 176px; left: 8px; right: 8px;
-      width: auto; max-width: none; transform: none;
+      top: 8px; bottom: auto; left: 50%; right: auto; transform: translateX(-50%);
     }
+    #area-search[open] { width: auto; max-width: 92vw; }
     #compass { width: 72px; height: 72px; left: 8px; bottom: 54px; transform: none; }
     #help { left: 8px; bottom: 8px; max-width: 60vw; }
-    #credit { right: 8px; bottom: 150px; font-size: 9px; max-width: 42vw; }
+    #credit { right: 8px; bottom: 140px; font-size: 9px; max-width: 34vw; }
+    #credit[open] { max-width: 60vw; }
     .tc-btn.tc-small { width: 38px; height: 38px; font-size: 12px; }
     .tc-btn.tc-big { width: 64px; height: 64px; font-size: 17px; }
   }
@@ -317,13 +334,14 @@
   <div class="note">高度: MSL / 風向: FROM(磁方位)<br>※磁気偏角は未考慮(プロトタイプ)</div>
 </div>
 
-<div id="area-search" class="panel">
+<details id="area-search" class="panel">
+  <summary>住所・地名で移動</summary>
   <div class="as-row">
     <input id="area-search-input" type="text" placeholder="住所・地名で移動(例: 東京都渋谷区)">
     <button id="area-search-btn" type="button">検索</button>
   </div>
   <ul id="area-search-results"></ul>
-</div>
+</details>
 
 <div id="address-map-overlay" style="display:none">
   <div class="b-panel">
@@ -390,10 +408,11 @@
 
 
 
-<div id="credit" class="panel">
-  出典: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院 地理院タイル</a>(標高タイル・全国最新写真)/
+<details id="credit" class="panel">
+  <summary>出典</summary>
+  <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院 地理院タイル</a>(標高タイル・全国最新写真)/
   住所検索: <a href="https://msearch.gsi.go.jp/address-search/" target="_blank" rel="noopener">国土地理院 Address Search API</a>
-</div>
+</details>
 
 <div id="loading" style="display:none">
   <div class="logo">SORA</div>

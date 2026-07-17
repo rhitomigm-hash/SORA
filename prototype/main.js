@@ -430,7 +430,10 @@ const isTouchDevice = matchMedia('(hover: none) and (pointer: coarse)').matches;
 if (isTouchDevice) {
   document.getElementById('pibal').style.display = 'none'; // 初期状態は隠して画面を広く使う
 } else {
-  document.getElementById('instruments').open = true; // PCでは計器パネルを開いたまま表示
+  // PCでは折りたたみパネルを開いたまま表示(スマホでは省スペースのため閉じておく)
+  document.getElementById('instruments').open = true;
+  document.getElementById('area-search').open = true;
+  document.getElementById('credit').open = true;
 }
 function setupTouchControls() {
   function holdButton(btn, onDown, onUp) {
