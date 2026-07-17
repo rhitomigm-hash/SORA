@@ -1,0 +1,406 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SORA - 熱気球フライトシミュレーター</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; background: #000; }
+  #app { position: fixed; inset: 0; touch-action: none; }
+  .panel {
+    position: fixed; padding: 10px 14px; border-radius: 8px;
+    background: rgba(10, 20, 30, 0.72); color: #e8f0f6;
+    font-family: "Segoe UI", "Yu Gothic UI", sans-serif; font-size: 13px;
+    user-select: none;
+  }
+  .panel .num { font-family: Consolas, monospace; }
+  #instruments { top: 12px; left: 12px; min-width: 190px; }
+  #instruments .alt-big { font-size: 30px; font-family: Consolas, monospace; line-height: 1.1; }
+  #instruments .row { display: flex; justify-content: space-between; gap: 12px; margin-top: 4px; }
+  .bar { height: 8px; border-radius: 4px; background: #223; margin-top: 2px; overflow: hidden; }
+  .bar > div { height: 100%; width: 50%; }
+  #fuel-fill { background: #4caf50; }
+  #heat-fill { background: #ff7043; }
+  #pibal { top: 12px; right: 12px; }
+  #pibal table { border-collapse: collapse; font-family: Consolas, monospace; font-size: 12px; }
+  #pibal th, #pibal td { padding: 2px 8px; text-align: right; border-bottom: 1px solid #345; }
+  #pibal .note { font-size: 10px; color: #9ab; margin-top: 4px; }
+  #area-search { top: 12px; left: 50%; transform: translateX(-50%); width: 280px; max-width: min(92vw, 360px); z-index: 5; }
+  #area-search .as-row { display: flex; gap: 6px; }
+  #area-search input {
+    flex: 1; min-width: 0; padding: 6px 8px; border-radius: 4px; border: 1px solid #345a7a;
+    background: #0d1620; color: #e8f0f6; font-size: 13px; font-family: inherit;
+  }
+  #area-search button {
+    padding: 6px 12px; border: 0; border-radius: 4px; background: #2e6da4;
+    color: #fff; font-size: 13px; cursor: pointer; white-space: nowrap;
+  }
+  #area-search button:hover { background: #3a80bd; }
+  #area-search-results { list-style: none; margin: 6px 0 0; padding: 0; max-height: 220px; overflow-y: auto; }
+  #area-search-results:empty { margin: 0; }
+  #area-search-results li { padding: 6px 8px; border-radius: 4px; cursor: pointer; font-size: 12px; }
+  #area-search-results li:hover { background: rgba(255, 255, 255, 0.1); }
+  #area-search-results li.as-empty { color: #9ab; cursor: default; }
+  #area-search-results li.as-empty:hover { background: none; }
+  #area-search-results li.as-empty { color: #9ab; cursor: default; }
+  #area-search-results li.as-empty:hover { background: none; }
+  #area-search .as-hint { margin-top: 6px; font-size: 10px; color: #9ab; }
+  #address-map-overlay .b-panel { max-width: min(92vw, 820px); }
+  #address-map-title { color: #9ecfff; margin-bottom: 6px; }
+  #area-search-map {
+    width: min(64vw, 760px); height: auto; margin: 0 auto;
+    border: 1px solid #345a7a; border-radius: 4px; cursor: crosshair; display: block;
+    touch-action: none;
+  }
+  .as-overlay-actions { display: flex; gap: 10px; margin-top: 14px; }
+  .as-overlay-actions button {
+    flex: 1; padding: 11px 0; border: 0; border-radius: 6px; font-size: 15px; cursor: pointer;
+  }
+  #area-search-go { background: #2e6da4; color: #fff; }
+  #area-search-go:hover { background: #3a80bd; }
+  #area-search-cancel { background: #33414f; color: #e8f0f6; }
+  #area-search-cancel:hover { background: #3d4d5e; }
+  .howto-panel { max-width: min(92vw, 420px); }
+  .howto-label { font-size: 13px; color: #9ab; margin-bottom: 8px; }
+  .howto-links { display: flex; gap: 10px; }
+  .howto-links a {
+    flex: 1; text-align: center; padding: 10px 0; border-radius: 6px;
+    background: #1a2a3a; border: 1px solid #345a7a; color: #e8f0f6; text-decoration: none; font-size: 14px;
+  }
+  .howto-links a:hover { background: #24384c; }
+  .howto-note { margin-top: 10px; font-size: 12px; color: #9ab; line-height: 1.6; }
+  .howto-try-btn {
+    margin-top: 14px; width: 100%; padding: 10px 0; border: 0; border-radius: 6px;
+    background: #2e6da4; color: #fff; font-size: 14px; cursor: pointer;
+  }
+  .howto-try-btn:hover { background: #3a80bd; }
+  .howto-close-btn {
+    margin-top: 16px; width: 100%; padding: 10px 0; border: 0; border-radius: 6px;
+    background: #33414f; color: #e8f0f6; font-size: 14px; cursor: pointer;
+  }
+  .howto-close-btn:hover { background: #3d4d5e; }
+  #result {
+    top: 50%; left: 50%; transform: translate(-50%, -60%);
+    text-align: center; min-width: 260px; padding: 20px 28px;
+    border: 1px solid #4a6a8a;
+  }
+  #result .r-title { font-size: 14px; color: #9ecfff; letter-spacing: 2px; }
+  #result .r-dist { font-size: 44px; font-family: Consolas, monospace; margin: 6px 0; }
+  #result .r-sub { font-size: 13px; color: #ffd54f; min-height: 18px; }
+  #result button {
+    margin-top: 12px; padding: 8px 22px; border: 0; border-radius: 6px;
+    background: #2e6da4; color: #fff; font-size: 14px; cursor: pointer;
+  }
+  #result button:hover { background: #3a80bd; }
+  #compass {
+    position: fixed; bottom: 12px; left: 50%; transform: translateX(-50%);
+    width: 120px; height: 120px; border-radius: 50%;
+    background: rgba(10, 20, 30, 0.72);
+  }
+  #help { bottom: 12px; left: 12px; font-size: 12px; color: #cdd9e4; line-height: 1.6; }
+  #help b { color: #ffd54f; font-family: Consolas, monospace; }
+  #help a { color: #9ecfff; }
+  #credit { bottom: 12px; right: 12px; font-size: 11px; color: #b8c4d0; }
+  #credit a { color: #9ecfff; }
+
+  /* ---- タッチ操作用ボタン(スマホ・タブレットでのみ表示) ---- */
+  #touch-controls {
+    display: none; position: fixed; right: 10px; bottom: 10px; z-index: 6;
+    flex-direction: column; align-items: flex-end; gap: 8px;
+    -webkit-user-select: none; user-select: none;
+  }
+  .tc-row { display: flex; gap: 8px; }
+  .tc-btn {
+    border: 1px solid #345a7a; border-radius: 10px; background: rgba(16, 26, 36, 0.82);
+    color: #e8f0f6; font-size: 13px; cursor: pointer; touch-action: none;
+    -webkit-touch-callout: none; -webkit-user-select: none; user-select: none;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .tc-btn.tc-small { width: 42px; height: 42px; }
+  .tc-btn.tc-big {
+    width: 74px; height: 74px; border-radius: 50%; font-size: 20px; font-weight: bold;
+  }
+  .tc-btn.tc-fire { background: rgba(255, 112, 67, 0.22); border-color: #ff7043; }
+  .tc-btn.tc-fire.active { background: rgba(255, 112, 67, 0.7); }
+  #tc-rip.active { background: rgba(255, 255, 255, 0.3); }
+  .tc-btn.active { background: rgba(255, 255, 255, 0.25); }
+
+  /* hover:none かつ pointer:coarse = タッチ操作の端末とみなす */
+  @media (hover: none) and (pointer: coarse) {
+    #touch-controls { display: flex; }
+    .kbd-only { display: none; }
+  }
+
+  /* 幅の狭い画面向けのレイアウト調整(スマホ・小さいウィンドウ共通) */
+  @media (max-width: 640px) {
+    .panel { font-size: 11px; padding: 7px 10px; }
+    #instruments { min-width: 128px; }
+    #instruments .alt-big { font-size: 22px; }
+    #area-search {
+      top: auto; bottom: 176px; left: 8px; right: 8px;
+      width: auto; max-width: none; transform: none;
+    }
+    #compass { width: 72px; height: 72px; left: 8px; bottom: 54px; transform: none; }
+    #help { left: 8px; bottom: 8px; max-width: 60vw; }
+    #credit { right: 8px; bottom: 150px; font-size: 9px; max-width: 42vw; }
+    .tc-btn.tc-small { width: 38px; height: 38px; font-size: 12px; }
+    .tc-btn.tc-big { width: 64px; height: 64px; font-size: 17px; }
+  }
+  #loading {
+    position: fixed; inset: 0; display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 12px;
+    background: #0c141c; color: #e8f0f6;
+    font-family: "Segoe UI", "Yu Gothic UI", sans-serif;
+  }
+  #loading .t { font-size: 20px; }
+  #loading .logo { font-size: 40px; font-weight: bold; letter-spacing: 6px; color: #9ecfff; }
+  #loading .tagline { font-size: 14px; color: #cdd9e4; margin-bottom: 8px; }
+  #loading .p { font-family: Consolas, monospace; color: #9ecfff; }
+  #briefing, #areasel, #address-map-overlay, #howto-overlay, #setup-overlay {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(8, 14, 20, 0.9);
+    font-family: "Segoe UI", "Yu Gothic UI", sans-serif; color: #e8f0f6;
+  }
+  #area-map {
+    width: min(72vw, 960px); height: auto;
+    border: 1px solid #345a7a; border-radius: 4px; cursor: crosshair; display: block;
+    touch-action: none;
+  }
+  .a-presets { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
+  .a-presets button {
+    background: #1a2a3a; border: 1px solid #345a7a; border-radius: 4px;
+    color: #e8f0f6; font-size: 13px; padding: 6px 14px; cursor: pointer;
+  }
+  .a-presets button:hover { background: #24384c; }
+  #area-btn {
+    margin-top: 12px; width: 100%; padding: 11px 0; border: 0; border-radius: 6px;
+    background: #2e6da4; color: #fff; font-size: 15px; cursor: pointer;
+  }
+  #area-btn:disabled { background: #33414f; color: #8a99a8; cursor: default; }
+  #area-btn:not(:disabled):hover { background: #3a80bd; }
+  .b-panel {
+    background: #101a24; border: 1px solid #345a7a; border-radius: 12px;
+    padding: 18px 26px 22px; max-height: 94vh; max-width: 94vw; overflow: auto;
+  }
+  .b-title { font-size: 20px; letter-spacing: 3px; color: #9ecfff; margin-bottom: 12px; }
+  .b-cols { display: flex; gap: 22px; flex-wrap: wrap; }
+  .b-left { min-width: 280px; max-width: 360px; font-size: 13px; }
+  #briefing.quick-launch .b-left { display: none; }
+  #briefing.quick-launch .b-cols { justify-content: center; }
+  .tasksheet { border-collapse: collapse; width: 100%; }
+  .tasksheet th, .tasksheet td {
+    text-align: left; padding: 4px 8px; border-bottom: 1px solid #2a3a4a; font-size: 13px;
+  }
+  .tasksheet th { color: #9ab; white-space: nowrap; font-weight: normal; }
+  .b-sub { margin: 14px 0 4px; color: #9ecfff; font-size: 13px; }
+  .b-pibal { border-collapse: collapse; font-family: Consolas, monospace; font-size: 12px; }
+  .b-pibal th, .b-pibal td { padding: 2px 6px; text-align: right; border-bottom: 1px solid #2a3a4a; }
+  .b-pibal input {
+    width: 62px; padding: 2px 4px; text-align: right;
+    background: #0d1620; border: 1px solid #2a3a4a; border-radius: 3px;
+    color: #e8f0f6; font-family: Consolas, monospace; font-size: 12px;
+  }
+  .b-pibal .del { background: none; border: 0; color: #e57373; cursor: pointer; font-size: 14px; }
+  .wind-tools { display: flex; gap: 6px; margin: 4px 0 6px; }
+  .wind-tools select, .wind-tools button {
+    background: #1a2a3a; border: 1px solid #345a7a; border-radius: 4px;
+    color: #e8f0f6; font-size: 12px; padding: 4px 8px; cursor: pointer;
+  }
+  .wind-tools select { flex: 1; }
+  .b-hint { margin-top: 12px; font-size: 12px; color: #cdd9e4; line-height: 1.7; }
+  #launch-btn {
+    margin-top: 16px; width: 100%; padding: 11px 0; border: 0; border-radius: 6px;
+    background: #2e6da4; color: #fff; font-size: 15px; cursor: pointer;
+  }
+  #launch-btn:disabled { background: #33414f; color: #8a99a8; cursor: default; }
+  #launch-btn:not(:disabled):hover { background: #3a80bd; }
+  #launch-map {
+    width: min(80vh, 60vw); height: min(80vh, 60vw);
+    border: 1px solid #345a7a; border-radius: 4px; cursor: crosshair; display: block;
+    touch-action: none;
+  }
+  .mapnote { font-size: 11px; color: #9ab; margin-top: 6px; }
+</style>
+</head>
+<body>
+<div id="app"></div>
+
+<div id="instruments" class="panel">
+  <div class="alt-big"><span id="alt-ft">----</span> ft</div>
+  <div class="row"><span>高度(MSL)</span><span class="num"><span id="alt-m">--</span> m</span></div>
+  <div class="row"><span>対地高度</span><span class="num"><span id="agl">--</span> m</span></div>
+  <div class="row"><span>昇降</span><span class="num"><span id="vario">--</span> m/s</span></div>
+  <div class="row"><span>風(現在高度)</span><span class="num" id="wind">---° / --kt</span></div>
+  <div class="row"><span>燃料</span><span class="num"><span id="fuel">100</span>%</span></div>
+  <div class="bar"><div id="fuel-fill"></div></div>
+  <div class="row"><span>エンベロープ温度</span></div>
+  <div class="bar"><div id="heat-fill"></div></div>
+  <div class="row"><span>時間加速</span><span class="num">×<span id="tscale">1</span></span></div>
+  <div class="row"><span>状態</span><span class="num" id="status">接地</span></div>
+  <div class="row"><span>ターゲット</span><span class="num" id="target-info">---- m / ---°</span></div>
+  <div class="row"><span>マーカー</span><span class="num" id="marker-info">残り 1</span></div>
+  <div class="row"><span>残り時間</span><span class="num" id="clock">30:00</span></div>
+</div>
+
+<div id="areasel" style="display:none">
+  <div class="b-panel">
+    <div class="b-title">フライトエリア選択</div>
+    <div class="a-presets" id="area-presets"></div>
+    <canvas id="area-map" width="1280" height="960"></canvas>
+    <div class="mapnote">クリック: エリア中心を選択(橙枠 = 約20km四方の飛行エリア、中央がターゲット)/ ホイール: 拡大縮小 / ドラッグ: 移動</div>
+    <button id="area-btn" disabled>地図でエリアを選択してください</button>
+  </div>
+</div>
+
+<div id="briefing" style="display:none">
+  <div class="b-panel">
+    <div class="b-title" id="briefing-title">タスクブリーフィング</div>
+    <div class="b-cols">
+      <div class="b-left">
+        <table class="tasksheet">
+          <tr><th>競技</th><td>JDG(ジャッジ・ディクレアード・ゴール)</td></tr>
+          <tr><th>ターゲット</th><td>地図上の橙色X</td></tr>
+          <tr><th>離陸</th><td>個別離陸(地図をクリックして選択)</td></tr>
+          <tr><th>制限時間</th><td>30:00(ゲーム内時間)</td></tr>
+          <tr><th>マーカー</th><td>1本(Mキーで投下)</td></tr>
+          <tr><th>スコア</th><td>マーカー着地点〜ターゲット中心の距離</td></tr>
+        </table>
+        <div class="b-sub">パイバル観測データ(編集できます)</div>
+        <div class="wind-tools">
+          <select id="wind-preset"></select>
+          <button id="wind-add" type="button">+行</button>
+          <button id="wind-copy" type="button">条件URLをコピー</button>
+        </div>
+        <table class="b-pibal">
+          <thead><tr><th>高度ft</th><th>風向°</th><th>風速kt</th><th></th></tr></thead>
+          <tbody id="wind-editor"></tbody>
+        </table>
+        <div class="b-hint">
+          風向はFROM(磁方位)。表は編集でき、プリセット選択・行の追加削除も可能です。<br>
+          ターゲットの風上側に離陸地点を取り、高度で風を乗り換えて狙いましょう。<br>
+          「条件URLをコピー」で、この風と同じ条件に挑戦できるURLを共有できます。
+        </div>
+      </div>
+      <div class="b-right">
+        <canvas id="launch-map" width="1280" height="1280"></canvas>
+        <div class="mapnote">地理院タイル(標準地図)/ 北が上 / クリック: 離陸地点を選択 / ホイール: 拡大縮小 / ドラッグ: 移動</div>
+        <button id="launch-btn" disabled>地図で離陸地点を選択してください</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div id="result" class="panel" style="display:none">
+  <div class="r-title">JDG リザルト</div>
+  <div class="r-dist"><span id="result-dist">--</span> m</div>
+  <div class="r-sub" id="result-sub"></div>
+  <button id="result-retry">もう一度飛ぶ</button>
+  <button id="result-share">条件URLをコピー</button>
+</div>
+
+<div id="pibal" class="panel">
+  <b>パイバル観測データ</b>
+  <table>
+    <thead><tr><th>高度ft</th><th>風向°</th><th>風速kt</th></tr></thead>
+    <tbody id="pibal-body"></tbody>
+  </table>
+  <div class="note">高度: MSL / 風向: FROM(磁方位)<br>※磁気偏角は未考慮(プロトタイプ)</div>
+</div>
+
+<div id="area-search" class="panel">
+  <div class="as-row">
+    <input id="area-search-input" type="text" placeholder="住所・地名で移動(例: 東京都渋谷区)">
+    <button id="area-search-btn" type="button">検索</button>
+  </div>
+  <ul id="area-search-results"></ul>
+</div>
+
+<div id="address-map-overlay" style="display:none">
+  <div class="b-panel">
+    <div class="b-title" id="address-map-title">位置を確認</div>
+    <canvas id="area-search-map" width="1280" height="960"></canvas>
+    <div class="mapnote">クリック: 位置を選択 / ドラッグ: 移動 / ホイール: 拡大縮小 / 橙色の枠が飛行エリア(約20km四方)</div>
+    <div class="as-overlay-actions">
+      <button id="area-search-cancel" type="button">キャンセル</button>
+      <button id="area-search-go" type="button">この場所へ移動</button>
+    </div>
+  </div>
+</div>
+
+<canvas id="compass" width="150" height="150"></canvas>
+
+<div id="help" class="panel">
+  <div class="kbd-only">
+    <b>Space</b> バーナー(長押し) <b>R</b> リップライン(長押し) <b>M</b> マーカー投下<br>
+    <b>V</b> 視点切替(ゴンドラ/外部) <b>1-4</b> 時間加速 ×1/×2/×4/×8<br>
+    <b>P</b> パイバル表 表示/非表示 マウスドラッグ: 視点回転 / ホイール: ズーム<br>
+  </div>
+  <a id="setup-link" href="#" style="color:#9ecfff;">本格モード</a>
+  / <a id="howto-link" href="#" style="color:#9ecfff;">使い方</a>
+</div>
+
+<div id="touch-controls">
+  <div class="tc-row">
+    <button id="tc-pibal" class="tc-btn tc-small" type="button" aria-label="パイバル表示切替">P</button>
+    <button id="tc-tscale" class="tc-btn tc-small" type="button" aria-label="時間加速切替">×1</button>
+    <button id="tc-view" class="tc-btn tc-small" type="button" aria-label="視点切替">👁</button>
+    <button id="tc-marker" class="tc-btn tc-small" type="button" aria-label="マーカー投下">📍</button>
+  </div>
+  <div class="tc-row tc-main">
+    <button id="tc-rip" class="tc-btn tc-big" type="button" aria-label="リップライン(長押し)">RIP</button>
+    <button id="tc-burner" class="tc-btn tc-big tc-fire" type="button" aria-label="バーナー(長押し)">🔥</button>
+  </div>
+</div>
+
+<div id="howto-overlay" style="display:none">
+  <div class="b-panel howto-panel">
+    <div class="b-title">SORAの使い方</div>
+    <div class="howto-label">動画</div>
+    <div class="howto-links">
+      <a href="https://www.instagram.com/supatory?utm_source=qr" target="_blank" rel="noopener">Instagram</a>
+      <a href="https://youtube.com/shorts/CzceTExbo-c?si=IpRbXo7vmntgc5Gx" target="_blank" rel="noopener">YouTube</a>
+    </div>
+    <button id="howto-close" type="button" class="howto-close-btn">閉じる</button>
+  </div>
+</div>
+
+<div id="setup-overlay" style="display:none">
+  <div class="b-panel howto-panel">
+    <div class="b-title">本格モード</div>
+    <div class="howto-label">動画</div>
+    <div class="howto-links">
+      <a href="https://www.instagram.com/hotairballoongames2026?utm_source=qr" target="_blank" rel="noopener">Instagram</a>
+    </div>
+    <div class="howto-note">hot-air-balloon1(エリア・風・離陸地点を自分で選ぶ本格JDGモード)の
+    最新版が遊べる環境は、Instagramでお知らせします。</div>
+    <button id="setup-try" type="button" class="howto-try-btn">お試しでやってみる(最新版ではありません)</button>
+    <button id="setup-close" type="button" class="howto-close-btn">閉じる</button>
+  </div>
+</div>
+
+
+
+<div id="credit" class="panel">
+  出典: <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院 地理院タイル</a>(標高タイル・全国最新写真)/
+  住所検索: <a href="https://msearch.gsi.go.jp/address-search/" target="_blank" rel="noopener">国土地理院 Address Search API</a>
+</div>
+
+<div id="loading" style="display:none">
+  <div class="logo">SORA</div>
+  <div class="tagline">熱気球のフライトを、誰でもすぐに。</div>
+  <div class="t" id="load-title">地形を読み込み中…</div>
+  <div class="p" id="load-progress">0 / 0</div>
+</div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+  }
+}
+</script>
+<script type="module" src="./main.js"></script>
+</body>
+</html>
