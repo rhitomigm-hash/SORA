@@ -476,20 +476,53 @@
       <div class="b-sub">気象条件(実データ・注意喚起) — パイバルの「実データ取得(全高度)」と同時に取得します</div>
       <pre class="windcalc-result" id="wx-result">「実データ取得(全高度)」を押すと、その時点の風・ガスト・視程・天気をここに表示します。</pre>
       <div class="windcalc-params">
-        <label>ガストの目安(kt・任意) <input type="number" id="wx-gust" step="1" placeholder="未設定"></label>
-        <label>視程の目安(m・任意) <input type="number" id="wx-vis" step="500" placeholder="未設定"></label>
-        <label>CAPEの目安(J/kg・任意) <input type="number" id="wx-cape" step="100" placeholder="未設定"></label>
+        <label>ガストの目安(kt・任意) <input type="number" id="wx-gust" step="1" placeholder="未設定(基準なし)"></label>
+        <label>視程の目安(m・任意) <input type="number" id="wx-vis" step="500" value="1500"></label>
+        <label>CAPEの目安(J/kg・任意) <input type="number" id="wx-cape" step="100" placeholder="未設定(基準なし)"></label>
+        <label>気温と露点の差の目安(℃・任意) <input type="number" id="wx-spread" step="0.5" placeholder="未設定(基準なし)"></label>
+      </div>
+      <div class="pressure-tools">
+        <button id="wx-guide" type="button" class="pmode-btn">目安の決め方(この地点の実データを調べる)</button>
+        <span id="wx-guide-status" style="font-size:12px;color:#9ecfff;"></span>
+      </div>
+      <pre class="windcalc-result" id="wx-guide-result" style="display:none;"></pre>
+      <div class="pressure-tools">
+        <button id="wx-apply-blh" type="button" class="pmode-btn" disabled>境界層高度を「地上層の厚み」に適用する</button>
+        <span id="wx-apply-blh-note" style="font-size:12px;color:#9ecfff;"></span>
       </div>
       <div class="b-hint">
         熱気球は<b>早朝や夕凪の穏やかな風のときに飛びます</b>。ガスト(瞬間的に強く吹く風)は
         できるだけない方が望ましいとされますが、<b>何ktから飛べないという明確な基準はありません</b>。
         そのためSORAでは合否を判定せず、数値を示して注意を促すだけにしています。<br>
+        <b>地表の加熱状況</b>(気温・日射量・雲量)は、日周期変動の背景を読むための参考です。
+        日射で地表が温まると対流が起き、上空の風が地上に降りてくるため、日中は風が強まります。
+        ただし実データで確かめたところ、<b>地上風との相関は日射量より境界層高度のほうが強く</b>
+        (0.64 対 0.91)、日射のピークより風のピークは2時間ほど遅れます。
+        そのためSORAでは、これらの値を風の計算には使っていません。<br>
         <b>CAPE</b>は「大気がどれだけ対流(上昇気流)を起こしうるか」を表す量です。
         値が大きいほど雷雨や活発な熱気泡(サーマル)が起こりやすい状態を意味しますが、
         <b>あくまで潜在的なエネルギーであり、きっかけがなければ実際に荒れるとは限りません</b>。
         括弧内の区分は気象一般で使われるもので、熱気球の可否基準ではありません。<br>
-        上の欄に数値を入れると、その値を超えたときに印を付けます(自分の目安を試すための機能で、
-        既定では何も設定していません)。<br>
+        <b>湿りの状態</b>(相対湿度・露点温度)は、視程が悪くなりやすいかを読むための参考です。
+        気温と露点の差が小さいほど空気は飽和に近づきます。実データ(3地点・60日)で確かめたところ、
+        差が小さいほど視程が悪い傾向はありました(佐賀では差0.5℃未満で視程の中央値2.6km、
+        3℃以上で27.1km)。ただし<b>その効き方は地点によって大きく違い</b>、
+        今後の視程低下を先読みできるかを調べると、佐賀・佐久では効いた一方
+        <b>渡良瀬ではほとんど効きませんでした</b>。先読みできる時間も1〜2時間程度しかありません。
+        そのためSORAでは<b>霧の判定も予測もせず</b>、数値を示すだけにしています。<br>
+        上の欄に数値を入れると、その値に達したとき(視程と気温・露点の差は下回ったとき)に
+        印を付けます。<br>
+        <b>初期値を入れているのは視程だけです。</b>1500mは
+        <b>航空法施行規則第5条の有視界気象状態</b>で、高度3000m未満・管制区・管制圏・情報圏以外の
+        空域を飛ぶ場合に定められた飛行視程です(熱気球も航空法上の航空機にあたります)。
+        <b>管制圏・情報圏の内側では5000m</b>になるなど、飛行場所によって適用される値が変わるため、
+        必要に応じて書き換えてください。<br>
+        <b>ガスト・CAPE・気温と露点の差には初期値を入れていません。</b>
+        いずれも熱気球の可否を判断できる基準が存在しないためです。
+        何を入れればよいか分からないときは<b>「目安の決め方」</b>を押してください。
+        その地点の直近60日のうち、熱気球が飛ぶ時間帯(5〜8時・16〜19時)の実データを集計し、
+        <b>どのくらいの値が普通で、どこからが珍しいか</b>を示します。
+        安全の基準ではなく、「いつもより荒れている日に印が付く」ように目安を選ぶための材料です。<br>
         <b style="color:#ffca5b;">※ これはゲーム内の参考値です。</b>
         実際のフライトの可否判断には使えません。実際に飛ぶ際は、必ず公式の気象情報と
         現地の目視で判断してください。
@@ -505,6 +538,8 @@
       <div class="windcalc-params">
         <label>早朝の離陸時刻 <input type="time" id="wc-dawntime" value="07:00"></label>
         <label>夕刻の離陸時刻 <input type="time" id="wc-dusktime" value="16:00"></label>
+        <label>BLH基準(m) <input type="number" id="wc-blhref" step="100" value="1800"></label>
+        <label>BLH指数 <input type="number" id="wc-blhexp" step="0.01" value="0.44"></label>
         <label>早朝係数 <input type="number" id="wc-dawn" step="0.05" value="0.35"></label>
         <label>夕方係数(平均) <input type="number" id="wc-duskmean" step="0.05" value="0.8"></label>
         <label>夕方係数(ランダム幅±) <input type="number" id="wc-duskwidth" step="0.05" value="0.3"></label>
@@ -512,6 +547,20 @@
         <label>キャンセル幅(kt) <input type="number" id="wc-cancelw" step="0.5" value="2"></label>
       </div>
       <pre class="windcalc-result" id="diurnal-result">「フライト開始時刻」を先に選ぶと、ここに判定結果が表示されます(ボタンを押し直すと再判定します)。</pre>
+      <div class="pressure-tools">
+        <button id="diurnal-apply-blh" type="button" class="pmode-btn" disabled>境界層高度から日周期係数を求めて適用する</button>
+        <span id="diurnal-apply-blh-note" style="font-size:12px;color:#9ecfff;"></span>
+      </div>
+      <div class="b-hint">
+        日周期係数は「気圧配置モデルの風のうち、どれだけが地上に届くか」を表す値です。
+        境界層が浅い早朝は地表付近が上空と切り離されて風が弱く、厚くなる日中〜夕刻は
+        上空の風が地上に降りてきて強まります。<br>
+        実データ72時間分から <b>風速 ∝ 境界層高度<sup>0.44</sup></b> という関係が得られたため
+        (log-log相関 0.887)、選んだ離陸時刻の境界層高度から係数を計算できます。
+        先に「実データ取得(全高度)」を押しておくと、上のボタンが使えるようになります。<br>
+        既定の手入力値(早朝0.35 / 夕方0.8)は経験的に置いたものですが、
+        この式で求めると 早朝0.38 / 夕刻0.84 程度になり、ほぼ一致します。
+      </div>
     </div>
   </div>
 </div>

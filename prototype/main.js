@@ -1027,7 +1027,14 @@ const REALDATA_PRESSURE_VARS = ['1000hPa', '925hPa', '850hPa', '700hPa', '500hPa
 // 気象条件(第1段階、2026-08-05)。上の風と同じリクエストに相乗りするため、通信回数は増えない
 // (実測: 変数を足してもHTTPリクエストは1回のまま、レスポンスは約2.5KB増のみ)。
 // いずれも表示するだけで、風の計算・フライトの挙動には影響させない
-const REALDATA_WX_VARS = ['wind_gusts_10m', 'visibility', 'weather_code', 'precipitation', 'cape'];
+const REALDATA_WX_VARS = ['wind_gusts_10m', 'visibility', 'weather_code', 'precipitation', 'cape',
+  'boundary_layer_height',
+  // 第4段階(2026-08-06): 日周期変動の背景となる地表の加熱状況
+  'shortwave_radiation', 'temperature_2m', 'cloud_cover',
+  // 第5段階(2026-08-06): 湿りの状態(視程が悪くなりやすいかの参考)
+  'relative_humidity_2m', 'dew_point_2m'];
+// 第3段階(2026-08-05): 逆転層の検出に使う気圧面の気温。下から順に並べておく
+const REALDATA_TEMP_LEVELS = ['1000hPa', '975hPa', '950hPa', '925hPa', '900hPa', '850hPa'];
 async function fetchRealWindToAllPibalRows() {
   const status = document.getElementById('wind-realdata-status');
   const ll = (devLaunchSel.x !== null) ? localXZToLonLat(devLaunchSel.x, devLaunchSel.z) : AREA;
@@ -1037,6 +1044,7 @@ async function fetchRealWindToAllPibalRows() {
       ...REALDATA_HEIGHT_VARS.flatMap((h) => [`wind_speed_${h}`, `wind_direction_${h}`]),
       ...REALDATA_PRESSURE_VARS.flatMap((p) => [`wind_speed_${p}`, `wind_direction_${p}`, `geopotential_height_${p}`]),
       ...REALDATA_WX_VARS,
+      ...REALDATA_TEMP_LEVELS.flatMap((p) => [`temperature_${p}`, `geopotential_height_${p}`]),
     ].join(',');
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${ll.lat}&longitude=${ll.lon}` +
       `&hourly=${hourlyVars}&wind_speed_unit=kn&forecast_days=1`;
@@ -1133,6 +1141,31 @@ function capeCategory(v) {
   return '極めて強い不安定';
 }
 
+const elevMOf = (data) => Number(data.elevation) || 0;
+
+// 気圧面の気温から逆転層(上のほうが暖かい層)を見つける。第3段階(2026-08-05)。
+// 逆転層があると上下の空気が混ざりにくくなり、その境目で風向・風速が変わりやすい。
+// **検出して表示するだけ**で、風の計算には使わない
+function detectInversions(hourly, idx, elevM) {
+  const levels = [];
+  for (const p of REALDATA_TEMP_LEVELS) {
+    const t = hourly[`temperature_${p}`] ? hourly[`temperature_${p}`][idx] : null;
+    const gh = hourly[`geopotential_height_${p}`] ? hourly[`geopotential_height_${p}`][idx] : null;
+    if (t == null || gh == null) continue;
+    if (gh < elevM) continue; // 地面より下の気圧面は無視する
+    levels.push({ ft: gh * M2FT, t });
+  }
+  levels.sort((a, b) => a.ft - b.ft);
+  const inversions = [];
+  for (let i = 0; i < levels.length - 1; i++) {
+    // 上の層のほうが暖かければ逆転層
+    if (levels[i + 1].t > levels[i].t) {
+      inversions.push({ fromFt: levels[i].ft, toFt: levels[i + 1].ft });
+    }
+  }
+  return { levels, inversions };
+}
+
 // 直前に取得した気象データ。閾値を変えたときに再取得せず表示し直すために持っておく。
 // (宣言はrenderWeatherConditionsより前に置く。過去にDIURNALで宣言順による
 //  「初期化前アクセス」でスクリプトが停止する不具合を出したため)
@@ -1146,7 +1179,12 @@ let lastWeatherData = null;
 // (熱気球は早朝・夕凪の穏やかな風で飛ぶもので、ガストはできるだけない方が望ましいが、
 //  「何ktから飛べない」という明確な基準は現状ない、というユーザーの実務知識による)。
 // 現在は**合否を判定せず、数値を示して注意を促すだけ**にしている。
-// 目安の数値は既定では設定せず、利用者が自分で入れたときだけ印を付ける
+//
+// 目安の数値は、**出典のある項目だけ初期値を入れる**(2026-08-06決定)。
+// 現在初期値があるのは視程の1500mのみで、これは航空法施行規則第5条の有視界気象状態
+// (高度3000m未満・管制区・管制圏・情報圏以外の空域)に定められた飛行視程という法令上の根拠がある。
+// 管制圏・情報圏の内側では5000mになるなど飛行場所で変わるため、書き換えられるようにしてある。
+// ガスト・CAPE・気温と露点の差は、熱気球の可否を判断できる基準が存在しないため**空欄のまま**
 // (理念「誤情報で混乱を生まない」と対応)。
 //
 // ガストは単独では意味が取りにくいため、**平均風速と並べて表示**する
@@ -1198,7 +1236,7 @@ function renderWeatherConditions(data, idx) {
     lines.push('  視程: 取得できませんでした');
   } else {
     const low = visLimit != null && visM <= visLimit;
-    lines.push(`  視程: ${(visM / 1000).toFixed(1)} km${low ? `  ← 設定した目安(${(visLimit / 1000).toFixed(1)}km)以下` : ''}`);
+    lines.push(`  視程: ${(visM / 1000).toFixed(1)} km${low ? `  ← 目安(${(visLimit / 1000).toFixed(1)}km)以下` : ''}`);
     if (low) marks.push('視程');
   }
 
@@ -1220,20 +1258,205 @@ function renderWeatherConditions(data, idx) {
     if (over) marks.push('CAPE');
   }
 
+  // 第3段階(2026-08-05): 境界層高度と逆転層。**既定では風の計算に使わない**。
+  // 境界層高度は「地上層の厚み」に適用できるが、適用するかどうかはボタンで明示的に選ばせる
+  const blhM = at('boundary_layer_height');
+  lastWeatherData.blhFt = (blhM == null) ? null : blhM * M2FT;
+  document.getElementById('wx-apply-blh').disabled = (blhM == null);
+  if (blhM != null) {
+    lines.push('');
+    lines.push(`  境界層高度: ${blhM.toFixed(0)} m(${(blhM * M2FT).toFixed(0)} ft)`);
+    lines.push(`    地表の影響が及ぶ高さの目安。日中は厚く、夜間〜早朝は薄くなる`);
+    lines.push(`    現在の「地上層の厚み」設定: ${windCalcReadParams().layerFt} ft（下のボタンで置き換えられます）`);
+  }
+
+  // 第4段階(2026-08-06): 地表の加熱状況。日周期変動の「背景」を見るための参考表示。
+  // 実データで確認したところ、地上風との相関は日射量が0.638、境界層高度が0.907で、
+  // **境界層高度のほうが明らかに良い予測因子**だった(日射のピークは13時だが風のピークは15時で
+  // 2時間遅れる。日射は原因、境界層高度は蓄積された結果で、風が応答するのは後者のため)。
+  // そのためこれらは日周期係数の計算には使わず、状況を読むための参考として表示するにとどめる
+  const rad = at('shortwave_radiation');
+  const temp2m = at('temperature_2m');
+  const cloud = at('cloud_cover');
+  if (rad != null || temp2m != null || cloud != null) {
+    lines.push('');
+    lines.push('  [地表の加熱状況(日周期変動の背景)]');
+    if (temp2m != null) lines.push(`    気温(2m): ${temp2m.toFixed(1)} ℃`);
+    if (rad != null) lines.push(`    日射量: ${rad.toFixed(0)} W/m²(地表がどれだけ温められているか)`);
+    if (cloud != null) lines.push(`    雲量: ${cloud.toFixed(0)} %(多いほど日射を遮る)`);
+  }
+
+  // 第5段階(2026-08-06): 湿りの状態(相対湿度・露点温度)。**表示するだけ**で風の計算には使わない。
+  // 気温と露点の差(スプレッド)が小さいほど空気が飽和に近く、視程が悪くなりやすい。
+  //
+  // 実装前に3地点×直近60日の実データで確かめた結果、以下が分かっている:
+  // ・視程との関係自体はある(佐賀ではスプレッド0.5℃未満で視程の中央値2.6km、
+  //   3℃以上では27.1km。5km未満になる割合は70.2%対2.6%)
+  // ・**ただし「予兆」としての効き方は地点によって大きく違う**。現在の視程が10km以上ある時点から
+  //   3時間以内に5km未満へ落ちる割合は、佐賀・佐久ではスプレッドが小さいほど高くなったが
+  //   (37.8%/30.3% 対 5.0%/6.5%)、渡良瀬では単調にならずほとんど効かなかった(9.3% 対 7.6%)
+  // ・**先読みできる時間はごく短い**。相関のピークは1〜2時間先(0.67)で同時刻(0.65)とほぼ同じ
+  // ・相対湿度と露点差は実質同じ情報(視程との相関は -0.675 対 0.654)
+  // ・風の弱さとの交互作用は確認できなかった(早朝スプレッド2未満で、
+  //   風速3kt未満でも6kt以上でも視程5km未満の割合は約40%で差がなかった)
+  //
+  // 以上より、**霧の判定も予測もしない**。数値を示し、地点差があることを併せて伝えるにとどめる
+  // (理念「根拠のない数値を基準のように見せない」)
+  const rh = at('relative_humidity_2m');
+  const dew = at('dew_point_2m');
+  if (rh != null || dew != null) {
+    lines.push('');
+    lines.push('  [湿りの状態(視程が悪くなりやすいかの参考)]');
+    if (rh != null) lines.push(`    相対湿度: ${rh.toFixed(0)} %`);
+    if (dew != null) lines.push(`    露点温度: ${dew.toFixed(1)} ℃(この温度まで下がると空気中の水蒸気が飽和する)`);
+    if (dew != null && temp2m != null) {
+      const spread = temp2m - dew;
+      const spreadLimit = readLimit('wx-spread');
+      const under = spreadLimit != null && spread <= spreadLimit;
+      lines.push(`    気温との差: ${spread.toFixed(1)} ℃(小さいほど飽和に近い)` +
+        `${under ? `  ← 設定した目安(${spreadLimit}℃)以下` : ''}`);
+      if (under) marks.push('気温と露点の差');
+      lines.push('    差が小さいほど視程が悪くなりやすい傾向はありますが、');
+      lines.push('    その効き方は地点によって差が大きく、霧の予測としては使えません。');
+    }
+  }
+
+  const inv = detectInversions(h, idx, elevMOf(data));
+  if (inv.levels.length >= 2) {
+    lines.push('');
+    lines.push(`  気温の高度変化: ${inv.levels.map((l) => `${l.ft.toFixed(0)}ft ${l.t.toFixed(1)}℃`).join(' / ')}`);
+    lines.push(inv.inversions.length
+      ? `    逆転層あり: ${inv.inversions.map((v) => `${v.fromFt.toFixed(0)}〜${v.toFt.toFixed(0)}ft`).join('、')}` +
+        `(上のほうが暖かい層。空気が混ざりにくく、その境目で風が変わりやすい)`
+      : '    逆転層は見つかりませんでした(高いほど気温が下がる、通常の状態)');
+  }
+
   lines.push('');
   lines.push('熱気球は早朝や夕凪の穏やかな風のときに飛びます。ガストはできるだけない方が望ましいですが、');
   lines.push('「何ktから飛べない」という明確な基準はないため、SORAでは合否を判定していません。');
-  if (marks.length) lines.push(`(自分で設定した目安に達した項目: ${marks.join('・')})`);
+  if (marks.length) lines.push(`(目安に達した項目: ${marks.join('・')})`);
 
   // 合否は出さないので、枠の色は付けない(判定しているように見えてしまうため)
   out.classList.remove('judge-go', 'judge-cancel');
   out.textContent = lines.join('\n');
 }
 // 閾値を変えたときも、直前に取得したデータで表示し直せるようにする
-['wx-gust', 'wx-vis', 'wx-cape'].forEach((id) => {
+['wx-gust', 'wx-vis', 'wx-cape', 'wx-spread'].forEach((id) => {
   document.getElementById(id).addEventListener('input', () => {
     if (lastWeatherData) renderWeatherConditions(lastWeatherData.data, lastWeatherData.idx);
   });
+});
+
+// 「目安の決め方」(2026-08-06)。ガスト・CAPE・気温と露点の差は、熱気球の可否を判断できる
+// 基準が存在しないため目安欄を空欄にしているが、それだと**何を入れたらいいか分からない**という
+// 問題が残る。かといって根拠のない数値を初期値として示すことは理念に反する。
+//
+// そこで、基準を示す代わりに**その地点の実データの分布**を示すことにした。
+// 「この地点のこの時期、飛ぶ時間帯では普通どのくらいの値か。どのくらいから珍しいか」であれば、
+// 実測に基づいて言える。利用者は「いつもより荒れている日に印が付く」ように目安を選べる。
+//
+// これが固定値より意味を持つことは実データで確認済み: 飛行時間帯のCAPEの中央値は
+// 佐賀690・渡良瀬160・上士幌0 J/kg と地点で大きく違い、**同じ1000という値でも
+// 地点によって「よくあること」にも「めったにないこと」にもなる**
+const WX_GUIDE_HOURS = [5, 6, 7, 8, 16, 17, 18, 19]; // 熱気球が飛ぶ時間帯(早朝・夕刻)
+function percentile(arr, p) {
+  const s = [...arr].sort((a, b) => a - b);
+  return s[Math.floor((s.length - 1) * p)];
+}
+async function showWeatherGuide() {
+  const status = document.getElementById('wx-guide-status');
+  const out = document.getElementById('wx-guide-result');
+  const ll = (devLaunchSel.x !== null) ? localXZToLonLat(devLaunchSel.x, devLaunchSel.z) : AREA;
+  status.textContent = '調べています…';
+  try {
+    const url = `https://api.open-meteo.com/v1/forecast?latitude=${ll.lat}&longitude=${ll.lon}` +
+      `&hourly=wind_gusts_10m,cape,temperature_2m,dew_point_2m&wind_speed_unit=kn` +
+      `&past_days=60&forecast_days=1&timezone=Asia%2FTokyo`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const h = data.hourly;
+    if (!h || !h.time || !h.time.length) throw new Error('データが取得できませんでした');
+
+    // 飛行時間帯だけを取り出す(日中の値を混ぜると、飛ばない時間帯の荒れた値に引きずられる)
+    const gusts = [], capes = [], spreads = [];
+    for (let i = 0; i < h.time.length; i++) {
+      if (!WX_GUIDE_HOURS.includes(Number(h.time[i].slice(11, 13)))) continue;
+      if (h.wind_gusts_10m[i] != null) gusts.push(h.wind_gusts_10m[i]);
+      if (h.cape[i] != null) capes.push(h.cape[i]);
+      if (h.temperature_2m[i] != null && h.dew_point_2m[i] != null) {
+        spreads.push(h.temperature_2m[i] - h.dew_point_2m[i]);
+      }
+    }
+    if (!gusts.length) throw new Error('飛行時間帯のデータがありませんでした');
+
+    const lines = [];
+    lines.push(`[目安の決め方] ${ll.lat.toFixed(2)}, ${ll.lon.toFixed(2)} の直近60日`);
+    lines.push(`熱気球が飛ぶ時間帯(5〜8時・16〜19時)の${gusts.length}時間分を集計しました。`);
+    lines.push('');
+    lines.push('これは「飛べる/飛べない」の基準ではありません。そのような基準は存在しないためです。');
+    lines.push('この地点のこの時期に「どのくらいの値が普通で、どこからが珍しいか」を示すものです。');
+    lines.push('「いつもより荒れている日に印が付く」ように選ぶ、という使い方を想定しています。');
+    lines.push('');
+
+    lines.push('■ ガストの目安(kt)');
+    lines.push('  瞬間的に強く吹く風。地上風の平均と並べて読み、差が大きいほど荒れています。');
+    lines.push(`  中央値 ${percentile(gusts, 0.5).toFixed(1)}(半分の時間はこれ以下)`);
+    lines.push(`  上位25% ${percentile(gusts, 0.75).toFixed(1)} / 上位10% ${percentile(gusts, 0.9).toFixed(1)}` +
+      ` / この60日の最大 ${percentile(gusts, 1).toFixed(1)}`);
+    lines.push(`  → 4回に1回の頻度で印を付けたいなら ${Math.round(percentile(gusts, 0.75))}、` +
+      `10回に1回なら ${Math.round(percentile(gusts, 0.9))} あたりです。`);
+    lines.push('');
+
+    lines.push('■ CAPEの目安(J/kg)');
+    lines.push('  大気がどれだけ対流を起こしうるかの量。大きいほど雷雨やサーマルが起きやすい状態ですが、');
+    lines.push('  あくまで潜在的なエネルギーで、きっかけがなければ実際に荒れるとは限りません。');
+    lines.push(`  中央値 ${percentile(capes, 0.5).toFixed(0)}` +
+      ` / 上位25% ${percentile(capes, 0.75).toFixed(0)} / 上位10% ${percentile(capes, 0.9).toFixed(0)}` +
+      ` / この60日の最大 ${percentile(capes, 1).toFixed(0)}`);
+    lines.push(`  → 10回に1回の頻度なら ${Math.round(percentile(capes, 0.9) / 50) * 50} あたりです。`);
+    lines.push('  気象一般の区分(1000/2500/4000)は熱気球の基準ではなく、地点によって');
+    lines.push('  「よくあること」にも「めったにないこと」にもなります(この地点の中央値と比べてください)。');
+    lines.push('');
+
+    lines.push('■ 気温と露点の差の目安(℃) ※ この項目だけ「下回ったら」印が付きます');
+    lines.push('  小さいほど空気が飽和に近く、視程が悪くなりやすい傾向があります。');
+    lines.push('  ただし効き方には地点差が大きく、霧の予測としては使えません。');
+    lines.push(`  中央値 ${percentile(spreads, 0.5).toFixed(1)}(半分の時間はこれ以上)`);
+    lines.push(`  下位25% ${percentile(spreads, 0.25).toFixed(1)} / 下位10% ${percentile(spreads, 0.1).toFixed(1)}` +
+      ` / この60日の最小 ${percentile(spreads, 0).toFixed(1)}`);
+    lines.push(`  → 4回に1回の頻度で印を付けたいなら ${percentile(spreads, 0.25).toFixed(1)}、` +
+      `10回に1回なら ${percentile(spreads, 0.1).toFixed(1)} あたりです。`);
+    lines.push('');
+    lines.push('注意: 直近60日だけの集計なので、季節が変わると分布も変わります。');
+    lines.push('また、ここに出るのは「この地点で普通かどうか」であって、安全かどうかではありません。');
+
+    out.textContent = lines.join('\n');
+    out.style.display = '';
+    status.textContent = `${gusts.length}時間分を集計しました。`;
+  } catch (err) {
+    status.textContent = `調べられませんでした: ${err.message}(通信環境をご確認ください)`;
+  }
+}
+document.getElementById('wx-guide').addEventListener('click', showWeatherGuide);
+
+// 境界層高度を「地上層の厚み」に適用する(第3段階、2026-08-05)。
+// **押したときだけ**風の計算が変わる。既定では従来の仮値(1000ft)のまま何も変わらない。
+// 自動適用にしなかった理由: 実データでは早朝230ft・夕刻5184ftと20倍以上の差があり、
+// そのまま入れると早朝は気圧配置モデルが、夕刻はパイバルがほぼ効かなくなってしまう。
+// また SORAの「地上層」は2つのモデルを滑らかにつなぐブレンド区間であって、
+// 気象学の境界層と同一の概念ではないため、置き換えの妥当性が確認できていない。
+// そのため「試せるようにはするが、既定の挙動は変えない」形にした
+document.getElementById('wx-apply-blh').addEventListener('click', () => {
+  if (!lastWeatherData || lastWeatherData.blhFt == null) return;
+  const ft = Math.round(lastWeatherData.blhFt);
+  const before = windCalcReadParams().layerFt;
+  document.getElementById('wc-layer').value = ft;
+  updateWindCalc();
+  updateDiurnalJudgment();
+  renderWeatherConditions(lastWeatherData.data, lastWeatherData.idx); // 表示中の「現在の設定」を更新
+  document.getElementById('wx-apply-blh-note').textContent =
+    `地上層の厚みを ${before}ft → ${ft}ft に変更しました(元に戻すには上の入力欄を直接編集してください)`;
 });
 
 function renderDevEditorRows(rows) {
@@ -2060,6 +2283,40 @@ document.getElementById('wc-dawntime').addEventListener('input', recomputeDiurna
 document.getElementById('wc-dusktime').addEventListener('input', recomputeDiurnalTimes);
 recomputeDiurnalTimes(); // 日出・日没の取得を待たずに、既定時刻(07:00/16:00)でボタンを表示しておく
 
+// 境界層高度(BLH)から日周期係数を導出する(2026-08-06)。
+//
+// 日周期係数は「気圧配置モデルの風のうち、どれだけが地上に届くか」を表す。
+// 境界層が浅い早朝は地表付近が上空と切り離されて風が弱く、厚い日中〜夕刻は上空の風が
+// 地上へ降りてきて強まる、という物理に対応する。
+//
+// 実データ72時間分(佐賀、3日)を log-log で回帰したところ
+// **風速 ∝ BLH^0.436**(相関0.887)という関係が得られたため、
+// 係数 = (BLH / 基準BLH)^指数(上限1)とする。基準・指数とも画面で調整できる。
+//
+// 選んだ離陸時刻のBLHを使う点が重要。1日分の時間別データを取得しているので、
+// 「今」ではなく実際に飛ぶ時刻の値を引ける
+function blhAtTime(t) {
+  if (!lastWeatherData || !t) return null;
+  const h = lastWeatherData.data.hourly;
+  if (!h || !h.boundary_layer_height) return null;
+  // hourly.time はGMT(timezone未指定で取得しているため)。絶対時刻で最も近いものを選ぶ
+  const target = t.getTime();
+  let best = -1, bestDiff = Infinity;
+  for (let i = 0; i < h.time.length; i++) {
+    const d = Math.abs(new Date(`${h.time[i]}:00Z`).getTime() - target);
+    if (d < bestDiff) { bestDiff = d; best = i; }
+  }
+  if (best < 0) return null;
+  const v = h.boundary_layer_height[best];
+  return v == null ? null : { blhM: v, time: h.time[best] };
+}
+
+function blhToDiurnalCoef(blhM) {
+  const ref = Math.max(1, Number(document.getElementById('wc-blhref').value) || 1800);
+  const exp = Number(document.getElementById('wc-blhexp').value) || 0.44;
+  return Math.min(1, Math.pow(Math.max(0, blhM) / ref, exp));
+}
+
 function diurnalReadParams() {
   return {
     dawnCoef: Number(document.getElementById('wc-dawn').value) || 0,
@@ -2082,7 +2339,8 @@ function setDiurnalMode(mode) {
 }
 document.getElementById('diurnal-dawn').addEventListener('click', () => setDiurnalMode('dawn'));
 document.getElementById('diurnal-dusk').addEventListener('click', () => setDiurnalMode('dusk'));
-['wc-dawn', 'wc-duskmean', 'wc-duskwidth', 'wc-cancelc', 'wc-cancelw'].forEach((id) => {
+['wc-dawn', 'wc-duskmean', 'wc-duskwidth', 'wc-cancelc', 'wc-cancelw',
+  'wc-blhref', 'wc-blhexp'].forEach((id) => {
   document.getElementById(id).addEventListener('input', updateDiurnalJudgment);
 });
 
@@ -2122,6 +2380,12 @@ function updateDiurnalJudgment() {
   const label = DIURNAL.mode === 'dawn' ? '早朝' : '夕方';
   const startTime = DIURNAL.mode === 'dawn' ? DIURNAL.dawnTime : DIURNAL.duskTime;
   const vfrWarning = diurnalVfrWarning(startTime);
+
+  // 離陸時刻の境界層高度から導出した係数を、参考として併記する(適用は別途ボタンで)
+  const blh = blhAtTime(startTime);
+  const suggested = blh ? blhToDiurnalCoef(blh.blhM) : null;
+  document.getElementById('diurnal-apply-blh').disabled = (suggested == null);
+
   out.classList.toggle('judge-go', !canceled);
   out.classList.toggle('judge-cancel', canceled);
   out.textContent = [
@@ -2130,6 +2394,10 @@ function updateDiurnalJudgment() {
     ``,
     `  気圧配置モデルの地上風(生値): ${groundWind.speedKt.toFixed(1)}kt`,
     `  日周期係数: ×${coef.toFixed(2)}${DIURNAL.mode === 'dusk' ? `(平均${dp.duskMean.toFixed(2)}±${dp.duskWidth.toFixed(2)}のランダム)` : '(固定)'}`,
+    ...(suggested != null
+      ? [`    参考: この時刻の境界層高度 ${blh.blhM.toFixed(0)}m から求めると ×${suggested.toFixed(2)}` +
+         `(下のボタンで適用できます)`]
+      : ['    参考: 「実データ取得(全高度)」を押すと、境界層高度からの係数も表示します']),
     `  日周期反映後の地上風: ${diurnalKt.toFixed(1)}kt`,
     `  キャンセル確率: ${(cancelProb * 100).toFixed(0)}%(中心${dp.cancelCenter}kt、幅${dp.cancelWidth}kt)`,
     `  抽選値: ${DIURNAL.roll.toFixed(2)} ${canceled ? '<' : '≥'} ${cancelProb.toFixed(2)} → ${canceled ? 'キャンセル' : '決行'}`,
@@ -2138,6 +2406,23 @@ function updateDiurnalJudgment() {
     `※ 実際のフライトの風には影響せず、判定結果の表示のみです。`,
   ].join('\n');
 }
+
+// 境界層高度から求めた日周期係数を、選択中の時間帯(早朝/夕方)の係数欄に適用する。
+// 第3段階の地上層厚みと同じく、**押したときだけ**変わる。既定では手入力の仮値のまま
+document.getElementById('diurnal-apply-blh').addEventListener('click', () => {
+  if (!DIURNAL.mode) return;
+  const t = DIURNAL.mode === 'dawn' ? DIURNAL.dawnTime : DIURNAL.duskTime;
+  const blh = blhAtTime(t);
+  if (!blh) return;
+  const coef = blhToDiurnalCoef(blh.blhM);
+  const id = DIURNAL.mode === 'dawn' ? 'wc-dawn' : 'wc-duskmean';
+  const before = document.getElementById(id).value;
+  document.getElementById(id).value = coef.toFixed(2);
+  updateDiurnalJudgment();
+  document.getElementById('diurnal-apply-blh-note').textContent =
+    `${DIURNAL.mode === 'dawn' ? '早朝係数' : '夕方係数(平均)'}を ${before} → ${coef.toFixed(2)} に変更しました` +
+    `(${hhmm(t)}の境界層高度 ${blh.blhM.toFixed(0)}m から算出)`;
+});
 
 // ---- 隠しコマンド(Wキー、devMode専用): フライト中の計算過程デバッグ表示 ----
 // ブリーフィング画面の「風の計算(実験)」パネルと同じ内容を、飛行中の現在位置でリアルタイムに表示する
