@@ -4,6 +4,13 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { buildTerrain, lonLatToTile } from './terrain.js';
+// 飛行ログ(IGC)の3D表示(?igc=1)。既定の起動には関与しない
+import {
+  selectIgcFlight, buildIgcScene, showIgcPanel, hideGameUi, createNorthIndicator,
+  createOwnTrail, createDeviationPanel, trimGameUiForIgc,
+} from './igcview.js';
+// PDG(目標宣言)。?dev=1 でユーザーが有効にしたときだけ働く
+import { pdg, pdgActive, pdgLaunch, setupPdgUi, addGoal, drawGoalsOnMap, scorePdg, GOAL_COLORS } from './pdg.js';
 
 // ---- 舞台設定 ----
 const TILE_RADIUS = 2; // 5x5タイル ≒ 20km四方
@@ -674,6 +681,18 @@ document.getElementById('setup-dev').addEventListener('click', () => {
   location.href = `${location.pathname}?${p.toString()}`;
 });
 
+// 「飛行ログ(IGC)を読み込む」: 手元のIGCを3Dで見る/飛ぶ/なぞる(?igc=1)。
+// エリアや風はIGCから決まるので、?a= や ?w= が付いていたら落としてから移動する
+document.getElementById('setup-igc').addEventListener('click', () => {
+  const p = new URLSearchParams(location.search);
+  p.delete('a');
+  p.delete('w');
+  p.delete('setup');
+  p.delete('dev');
+  p.set('igc', '1');
+  location.href = `${location.pathname}?${p.toString()}`;
+});
+
 // ---- エリア選択画面(日本全図のスリッピーマップ+プリセット) ----
 function selectArea() {
   return new Promise((resolve) => {
@@ -886,7 +905,30 @@ const mainParams = new URLSearchParams(location.search);
 const setupMode = mainParams.has('setup');
 const devMode = mainParams.has('dev');
 const hasChosenArea = mainParams.has('a'); // 住所検索や共有URLなどで明示的にエリアが指定されているか
-AREA = decodeArea(mainParams.get('a'));
+// ?igc=1: 飛行ログ(IGC)を3Dで見るモード。ゲームは開始しない。
+// エリアはIGCの離陸地点から決まるので、先にファイルを読んでから地形を組む
+// ?igc=1: 飛行ログ(IGC)のモード。ファイルを読んだあと「見る / 飛ぶ / なぞる」を選ぶ。
+//   見る   … 従来どおり。軌跡を板で描くだけで飛ばない
+//   飛ぶ   … 同じ離陸地点・実測の風で自分が操縦する(復習)
+//   なぞる … 高度だけ実測どおりに動かし、水平は風モデルに任せる(検証)
+// エリアはIGCの離陸地点から決まるので、先にファイルを読んでから地形を組む
+const igcMode = mainParams.has('igc');
+const igcPicked = igcMode ? await selectIgcFlight() : null;
+const igcFlight = igcPicked ? igcPicked.flight : null;
+const igcViewMode = igcPicked ? igcPicked.mode : null;   // 'view' | 'fly' | 'trace'
+const igcFlies = igcViewMode === 'fly' || igcViewMode === 'trace';
+
+// 実測の風をパイバル表として使う(飛ぶ・なぞるのとき)。
+// ⚠ HUDのパイバル表は renderFlightPibal() が起動時に一度描いているので、描き直すこと。
+//   忘れると「物理はIGCの風・表示は既定のプリセット」という食い違いになる(2026-08-24に実際に出た)
+if (igcFlies && igcFlight.pibalRows.length) {
+  PIBAL = igcFlight.pibalRows.map((r) => ({ ...r }));
+  renderFlightPibal();
+}
+
+AREA = igcFlight
+  ? { lon: igcFlight.takeoff.lon, lat: igcFlight.takeoff.lat, name: `飛行ログ ${igcFlight.dateText}` }
+  : decodeArea(mainParams.get('a'));
 if (!AREA) AREA = (setupMode || devMode) ? await selectArea() : PRESET_AREAS[0];
 
 const loadingEl = document.getElementById('loading');
@@ -899,6 +941,28 @@ const terrain = await buildTerrain(AREA.lon, AREA.lat, TILE_RADIUS,
   (done, total) => { loadEl.textContent = `${done} / ${total}`; });
 scene.add(terrain.group);
 loadingEl.remove();
+
+// ?igc=1: 軌跡・板・目標・マーカーを置く。カメラは下の「カメラ初期配置」で飛行範囲に合わせる
+let igcBounds = null;
+let igcNorth = null;
+let igcTrail = null;
+let igcDeviation = null;
+if (igcFlight) {
+  const igcScene = buildIgcScene(igcFlight, terrain);
+  scene.add(igcScene.group);
+  showIgcPanel(igcFlight, { collapsed: igcFlies });
+  // 飛ぶ・なぞるではゲームのコンパス(#compass)が出るので、見るだけのときに置く
+  if (!igcFlies) igcNorth = createNorthIndicator();
+  if (igcFlies) {
+    // 飛ぶ・なぞる: ゲームUIは残す。自分の軌跡を線で描く(実測は板、自分は線)
+    trimGameUiForIgc();
+    igcTrail = createOwnTrail(scene);
+    if (igcViewMode === 'trace') igcDeviation = createDeviationPanel(igcFlight);
+  } else {
+    igcBounds = igcScene.bounds;   // 見るだけのときはカメラを飛行範囲に合わせる
+    hideGameUi();
+  }
+}
 
 // ---- ブリーフィング(タスクシート+パイバル編集+離陸地点選択) ----
 // setupMode のときだけ構築する(既定モードでは風は既定値/URL指定のまま使う)
@@ -1527,6 +1591,9 @@ if (setupMode || hasChosenArea) {
     launchMapApi.selectAt(dp.x, dp.z);
   }
 }
+// PDG(目標宣言)のUI。setupDevLaunchMap() の中で組み立てるので、呼ばれる前に用意しておく
+let pdgUi = null;
+
 // devMode: フルJDGブリーフィング相当を、安定版(#briefing)とは別要素(#dev-briefing)で表示する
 if (devMode) {
   const devLaunchMapApi = setupDevLaunchMap();
@@ -1785,19 +1852,24 @@ function setupDevLaunchMap() {
       }
     }
 
-    // ターゲット(橙X+白丸)
-    const [tx, ty] = worldToScreen(TARGET_XZ.x, TARGET_XZ.z);
-    ctx.strokeStyle = '#ffffff';
-    ctx.lineWidth = 3;
-    ctx.beginPath();
-    ctx.arc(tx, ty, 16, 0, Math.PI * 2);
-    ctx.stroke();
-    ctx.strokeStyle = '#ff5a00';
-    ctx.lineWidth = 7;
-    ctx.beginPath();
-    ctx.moveTo(tx - 11, ty - 11); ctx.lineTo(tx + 11, ty + 11);
-    ctx.moveTo(tx - 11, ty + 11); ctx.lineTo(tx + 11, ty - 11);
-    ctx.stroke();
+    // ターゲット(橙X+白丸)。
+    // PDGは「パイロットが目標を宣言する」独立したタスクなので、JDGのゴールは出さない
+    // (2026-08-25決定。飛ぶと消えるのに地図には出ている、という不整合を直した。
+    //  将来 JDG+PDG の複合タスクをやるときは、ここも含めて設計し直すこと)
+    if (!pdg.enabled) {
+      const [tx, ty] = worldToScreen(TARGET_XZ.x, TARGET_XZ.z);
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(tx, ty, 16, 0, Math.PI * 2);
+      ctx.stroke();
+      ctx.strokeStyle = '#ff5a00';
+      ctx.lineWidth = 7;
+      ctx.beginPath();
+      ctx.moveTo(tx - 11, ty - 11); ctx.lineTo(tx + 11, ty + 11);
+      ctx.moveTo(tx - 11, ty + 11); ctx.lineTo(tx + 11, ty - 11);
+      ctx.stroke();
+    }
     // 選択中の離陸地点(赤丸)
     if (devLaunchSel.x !== null) {
       const [lx, ly] = worldToScreen(devLaunchSel.x, devLaunchSel.z);
@@ -1811,6 +1883,8 @@ function setupDevLaunchMap() {
       ctx.arc(lx, ly, 14, 0, Math.PI * 2);
       ctx.stroke();
     }
+    // PDGの宣言目標(番号つき)
+    drawGoalsOnMap(ctx, worldToScreen);
   }
 
   function zoomAt(ox, oy, dir) {
@@ -1843,17 +1917,50 @@ function setupDevLaunchMap() {
     onZoom: zoomAt,
   });
 
-  function selectAt(wx, wz) {
-    devLaunchSel.x = THREE.MathUtils.clamp(wx, M.minX, M.minX + terrain.sizeMeters);
-    devLaunchSel.z = THREE.MathUtils.clamp(wz, M.minZ, M.minZ + terrain.sizeMeters);
-    render();
+  function updateLaunchButton() {
     const btn = document.getElementById('launch-btn-dev');
+    if (devLaunchSel.x === null) return;
     btn.disabled = false;
+    if (pdgActive()) {
+      btn.textContent = `離陸!(目標${pdg.goals.length}個を宣言済み — 離陸すると変更できません)`;
+      return;
+    }
+    if (pdg.enabled) {
+      btn.disabled = true;
+      btn.textContent = '目標を1つ以上宣言してください';
+      return;
+    }
     const d = Math.hypot(devLaunchSel.x - TARGET_XZ.x, devLaunchSel.z - TARGET_XZ.z);
     btn.textContent = `離陸!(ターゲットまで ${(d / 1000).toFixed(2)} km)`;
+  }
+
+  function selectAt(wx, wz) {
+    const x = THREE.MathUtils.clamp(wx, M.minX, M.minX + terrain.sizeMeters);
+    const z = THREE.MathUtils.clamp(wz, M.minZ, M.minZ + terrain.sizeMeters);
+
+    // PDGで「目標を置く」モードのときは、離陸地点ではなく目標を置く
+    if (pdg.enabled && pdg.placing) {
+      const ft = Number(document.getElementById('pdg-ft').value) || 0;
+      addGoal(x, z, ft);
+      pdgUi.renderList();
+      render();
+      updateLaunchButton();
+      return;
+    }
+
+    devLaunchSel.x = x;
+    devLaunchSel.z = z;
+    pdgLaunch.x = x;
+    pdgLaunch.z = z;
+    render();
+    updateLaunchButton();
+    if (pdgUi) pdgUi.renderList();   // 目標までの距離は離陸地点が決まってから出る
     updateWindCalc(); // 離陸地点が変わるとパイバルとのキャリブレーション基準点も変わる
     updateDiurnalJudgment(); // 離陸地点が変わると日周期判定の基準地点も変わる
   }
+
+  // PDGのUIは、この地図の再描画とボタン更新を呼ぶ必要があるのでここで組む
+  pdgUi = setupPdgUi(() => { render(); updateLaunchButton(); });
 
   render();
   return { selectAt };
@@ -1861,7 +1968,22 @@ function setupDevLaunchMap() {
 
 document.getElementById('launch-btn-dev').addEventListener('click', () => {
   if (devLaunchSel.x === null) return;
+  if (pdg.enabled && pdg.goals.length === 0) return;
   applyDevWindFromEditor(); // 離陸時点のエディタ内容で風を確定
+
+  // PDG: ここで宣言を締め切る(実物でも離陸前が宣言の期限)。目標を3Dに立て、
+  // 隠していた気圧配置・気象の表示も戻す(飛んでしまえば隠す意味がない)
+  if (pdgActive()) {
+    pdg.declared = true;
+    pdg.drops = [];
+    marker.available = pdg.goals.length;
+    scene.add(buildPdgGoals());
+    for (const g of pdg.goals) terrain.requestDetail(g.x, g.z);
+    // JDGのターゲット(エリア中央)は宣言目標と無関係なので、PDGでは出さない
+    target.visible = false;
+    const targetRow = document.getElementById('target-info');
+    if (targetRow && targetRow.parentElement) targetRow.parentElement.style.display = 'none';
+  }
 
   // 気圧配置モデル(H・L)が配置されていれば、離陸時点でパイバル(0ft)とキャリブレーションし、
   // 実際のフライトの地上層(0〜layerFt)に反映する。未配置の場合は従来通りパイバルのみで飛ぶ
@@ -2506,13 +2628,40 @@ scene.add(balloon.group);
 const targetGroundY = terrain.getHeight(TARGET_XZ.x, TARGET_XZ.z);
 const target = buildTarget(TARGET_XZ.x, TARGET_XZ.z, targetGroundY);
 scene.add(target);
+// ?igc=1 では世界原点がIGCの離陸地点なので、JDGのターゲットがそこに重なってしまう。
+// 飛行ログを見る/飛ぶモードにJDGの得点は無いので出さない
+if (igcFlight) target.visible = false;
 
-// マーカーは1本。dropped後は marker.state が物理を持つ
+// PDGの宣言目標を3Dに立てる(赤・橙・紫の柱＋地面の輪。宣言高度まで伸ばす)
+function buildPdgGoals() {
+  const group = new THREE.Group();
+  pdg.goals.forEach((g, i) => {
+    const ground = terrain.getHeight(g.x, g.z);
+    const height = Math.max(60, g.ft / M2FT);
+    const color = new THREE.Color(GOAL_COLORS[i]);
+    const pole = new THREE.Mesh(
+      new THREE.CylinderGeometry(3, 3, height, 8),
+      new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.85 }));
+    pole.position.set(g.x, ground + height / 2, g.z);
+    group.add(pole);
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(28, 38, 40),
+      new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, transparent: true, opacity: 0.9, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(g.x, ground + 1.5, g.z);
+    group.add(ring);
+  });
+  return group;
+}
+
+// マーカーは通常1本。PDGでは宣言した目標の数だけ持てる。
+// dropped後は marker.state が「落下中の1本」の物理を持つ(同時に複数は落とさない)
 const marker = { available: 1, state: null, mesh: null };
 
 function dropMarker() {
   if (marker.available <= 0 || state.grounded || expired) return;
-  marker.available = 0;
+  if (marker.state && !marker.state.landed) return;   // 落下中は次を投下しない
+  marker.available -= 1;
   const w = windAt(state.pos.y, state.pos.x, state.pos.z);
   marker.state = {
     pos: state.pos.clone().add(new THREE.Vector3(0, 0.8, 0)),
@@ -2522,7 +2671,8 @@ function dropMarker() {
   marker.mesh = buildMarkerMesh();
   marker.mesh.position.copy(marker.state.pos);
   scene.add(marker.mesh);
-  document.getElementById('marker-info').textContent = '投下!';
+  document.getElementById('marker-info').textContent =
+    pdgActive() ? `投下! (残り${marker.available}本)` : '投下!';
 }
 
 function stepMarker(dt) {
@@ -2548,6 +2698,18 @@ function stepMarker(dt) {
 }
 
 function onMarkerLanded(pos) {
+  // PDG: 着地点を記録するだけ。採点はマーカーを使い切るか、時間切れ・着陸のときに行う
+  // (どのマーカーがどの目標を狙ったかは決めない。実データでも対応づけは読めなかった)
+  if (pdgActive()) {
+    pdg.drops.push({ x: pos.x, z: pos.z });
+    marker.mesh = null;
+    document.getElementById('marker-info').textContent =
+      marker.available > 0 ? `着地。残り${marker.available}本` : '全部投下しました';
+    // まだ飛んでいるので、機体位置は計測に使わない(投下点だけで採点する)
+    if (marker.available <= 0) finishPdg('マーカーを使い切りました', false);
+    return;
+  }
+
   const dist = Math.hypot(pos.x - TARGET_XZ.x, pos.z - TARGET_XZ.z);
   // 着地点→ターゲットの計測ライン
   const lineGeo = new THREE.BufferGeometry().setFromPoints([
@@ -2556,6 +2718,57 @@ function onMarkerLanded(pos) {
   ]);
   scene.add(new THREE.Line(lineGeo, new THREE.LineBasicMaterial({ color: 0xffee58 })));
   showResult(dist, null);
+}
+
+// PDGの採点。各目標について「いちばん近かったマーカー(無ければ着陸地点)までの距離」を採り、
+// その合計を成績にする。マーカーと目標は対応づけない
+const PDG_BEST_KEY = 'balloon-pdg-proto-best';
+let pdgFinished = false;
+
+// includeCurrentPos: 飛行が実際に終わったとき(着陸・時間切れ)だけ true。
+// マーカーを使い切っただけならまだ飛んでいるので、機体位置は計測に使わない
+function finishPdg(note, includeCurrentPos) {
+  if (pdgFinished) return;
+  pdgFinished = true;
+  expired = true;   // 採点が出たら時計も止める
+  const { rows, total } = scorePdg(state.pos, includeCurrentPos);
+
+  // 各目標への計測ラインを引く
+  for (const g of pdg.goals) {
+    const ground = terrain.getHeight(g.x, g.z);
+    const candidates = includeCurrentPos
+      ? pdg.drops.concat([{ x: state.pos.x, z: state.pos.z }])
+      : pdg.drops;
+    let nearest = null;
+    for (const p of candidates) {
+      const d = Math.hypot(p.x - g.x, p.z - g.z);
+      if (!nearest || d < nearest.d) nearest = { d, p };
+    }
+    if (!nearest) continue;
+    scene.add(new THREE.Line(
+      new THREE.BufferGeometry().setFromPoints([
+        new THREE.Vector3(nearest.p.x, terrain.getHeight(nearest.p.x, nearest.p.z) + 1, nearest.p.z),
+        new THREE.Vector3(g.x, ground + 1, g.z),
+      ]),
+      new THREE.LineBasicMaterial({ color: 0xffee58 })));
+  }
+
+  const prev = Number(localStorage.getItem(PDG_BEST_KEY));
+  const isBest = !Number.isFinite(prev) || prev <= 0 || total < prev;
+  if (isBest) localStorage.setItem(PDG_BEST_KEY, total.toFixed(1));
+
+  const detail = rows.map((r) => {
+    if (!r.measured) return `目標${r.number}: 未計測（マーカー未投下）`;
+    return `目標${r.number}: ${r.distance.toFixed(1)} m${r.usedDrop ? '（投下点で計測）' : '（機体位置で計測）'}`;
+  }).join('<br>');
+  document.getElementById('result-title').textContent = 'PDG リザルト';
+  document.getElementById('result-dist').textContent = total.toFixed(1);
+  document.getElementById('result-sub').innerHTML = [
+    note, detail,
+    isBest ? '自己ベスト更新!(PDG)' : `自己ベスト(PDG): ${Number(prev).toFixed(1)} m`,
+  ].filter(Boolean).join('<br>');
+  document.getElementById('result').style.display = '';
+  document.getElementById('marker-info').textContent = `合計 ${total.toFixed(1)} m`;
 }
 
 function showResult(dist, note) {
@@ -2575,18 +2788,71 @@ function showResult(dist, note) {
 // 制限時間の進行。時間内に投下できなければ現在地点で計測(フォールバック)
 function stepClock(dt) {
   if (expired) return;
+  // ?igc=1 の飛ぶ・なぞるにJDGの得点は無い。実測は30分を超えることがあるので時計も止める
+  if (igcFlies) return;
   remaining = Math.max(0, remaining - dt);
   const mm = String(Math.floor(remaining / 60)).padStart(2, '0');
   const ss = String(Math.floor(remaining % 60)).padStart(2, '0');
   hud.clock.textContent = `${mm}:${ss}`;
   if (remaining <= 0) {
     expired = true;
+    // PDG: 残ったマーカーは投下せず、未達の目標は現在地点で計測する
+    // (実データでも、届かない目標には着陸時にその場でマーカーを置いていた)
+    if (pdgActive()) {
+      if (!marker.state || marker.state.landed) finishPdg('制限時間切れ: 未投下ぶんは機体位置で計測', true);
+      return;
+    }
     if (!marker.state) {
       marker.available = 0;
       const d = Math.hypot(state.pos.x - TARGET_XZ.x, state.pos.z - TARGET_XZ.z);
       showResult(d, '制限時間切れ: 現在地点で計測');
     }
   }
+}
+
+// PDG: 着陸したら終わり(もう飛べないので、未投下ぶんは着陸地点で計測になる)。
+// 離陸前も grounded なので、一度でも浮いたかどうかを見てから判定する
+let pdgWasAirborne = false;
+function stepPdgLanding() {
+  if (!pdgActive() || pdgFinished) return;
+  const agl = state.pos.y - terrain.getHeight(state.pos.x, state.pos.z);
+  if (agl > 5) { pdgWasAirborne = true; return; }
+  if (!pdgWasAirborne) return;
+  if (marker.state && !marker.state.landed) return;   // 落下中のマーカーを待つ
+  finishPdg('着陸しました: 未投下ぶんは着陸地点で計測', true);
+}
+
+// ?igc=1 の「飛ぶ」「なぞる」。自分の軌跡を残し、なぞるでは高度を実測どおりに動かす
+let igcElapsed = 0;
+let igcTraceDone = false;
+function stepIgcFlight(dt) {
+  if (!igcFlies) return;
+  igcElapsed += dt;
+
+  if (igcViewMode === 'trace' && !igcTraceDone) {
+    // 高度だけ実測を与える。水平方向は windAt(=実測から作ったパイバル)に任せるので、
+    // 開いていくずれが、そのまま「風モデルで軌跡を再現したときの誤差」になる
+    const t = igcFlight.takeoff.seconds + igcElapsed;
+    if (t >= igcFlight.landing.seconds) {
+      igcTraceDone = true;
+      if (igcDeviation) igcDeviation.finish();
+    } else {
+      let nearest = null;
+      for (const p of igcFlight.track) {
+        const gap = Math.abs(p.seconds - t);
+        if (!nearest || gap < nearest.gap) nearest = { gap, p };
+        if (p.seconds > t + 2) break;
+      }
+      if (nearest && nearest.gap <= 5) {
+        state.pos.y = nearest.p.y;
+        state.vy = 0;
+        state.grounded = false;
+      }
+    }
+    if (igcDeviation) igcDeviation.update(igcElapsed, state.pos.x, state.pos.z);
+  }
+
+  if (igcTrail) igcTrail.push(state.pos.x, state.pos.y, state.pos.z);
 }
 
 document.getElementById('result-retry').addEventListener('click', () => location.reload());
@@ -2731,8 +2997,23 @@ function updateHud(w) {
 
 // ---- カメラ初期配置 ----
 balloon.group.position.copy(state.pos);
-controls.target.copy(state.pos).add(new THREE.Vector3(0, 12, 0));
-camera.position.copy(controls.target).add(new THREE.Vector3(60, 35, 60));
+if (igcBounds) {
+  // 飛行範囲がちょうど収まる位置に引く。気球は出さない(飛ばさないので)
+  balloon.group.visible = false;
+  const cx = (igcBounds.minX + igcBounds.maxX) / 2;
+  const cz = (igcBounds.minZ + igcBounds.maxZ) / 2;
+  const spread = Math.max(igcBounds.maxX - igcBounds.minX, igcBounds.maxZ - igcBounds.minZ, 600);
+  // ゲーム用の制限(25〜600m・パン禁止)は気球を追うためのもの。見るだけのモードでは外す
+  // (これを外さないと、飛行範囲がkm単位なのでカメラが600mまで引き戻される)
+  controls.minDistance = 5;
+  controls.maxDistance = spread * 6;
+  controls.enablePan = true;
+  controls.target.set(cx, (igcBounds.minY + igcBounds.maxY) / 2, cz);
+  camera.position.set(cx + spread * 0.75, igcBounds.maxY + spread * 0.55, cz + spread * 1.05);
+} else {
+  controls.target.copy(state.pos).add(new THREE.Vector3(0, 12, 0));
+  camera.position.copy(controls.target).add(new THREE.Vector3(60, 35, 60));
+}
 applyViewMode();
 
 const prevPos = state.pos.clone();
@@ -2744,7 +3025,11 @@ let ripPull = 0;  // リップラインを引いた量(0..1、滑らかに追従
 // 初回起動(既定エリア・setupなし・住所指定なし・devなし)ではブリーフィングを介さず即離陸する。
 // setupMode / hasChosenArea / devMode のときは、ブリーフィングの「離陸!」ボタンで startFlight が呼ばれる。
 // ?fpv=1 を付けるとゴンドラ視点で開始(視点確認用、離陸後に反映される)
-if (!setupMode && !hasChosenArea && !devMode) {
+// ?igc=1 の「飛ぶ」「なぞる」は、IGCの離陸地点(世界原点)からそのまま離陸する。
+// 「見る」だけのときは離陸しない
+if (igcFlies) {
+  startFlight(0, 0);
+} else if (!setupMode && !hasChosenArea && !devMode && !igcMode) {
   const lp = defaultLaunchPoint();
   startFlight(lp.x, lp.z);
 }
@@ -2758,8 +3043,10 @@ renderer.setAnimationLoop(() => {
 
   if (started) {
     const w = stepPhysics(dt);
+    stepIgcFlight(dt);
     stepMarker(dt);
     stepClock(dt);
+    stepPdgLanding();
     updateSounds(w.kt);
 
     balloon.group.position.copy(state.pos);
@@ -2802,6 +3089,15 @@ renderer.setAnimationLoop(() => {
       const agl = state.pos.y - terrain.getHeight(state.pos.x, state.pos.z);
       if (agl < 1000) terrain.requestUltra(state.pos.x, state.pos.z);
     }
+  }
+
+  // ?igc=1: 飛ばないので、見ているあたりの地面を段階的に高解像度化する
+  if (igcBounds) {
+    if (performance.now() - lastDetailCheck > 1500) {
+      lastDetailCheck = performance.now();
+      terrain.updateDetail(controls.target.x, controls.target.z);
+    }
+    if (igcNorth) igcNorth.update(camera, controls.target);
   }
 
   if (!fpv) controls.update();
