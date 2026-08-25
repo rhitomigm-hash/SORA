@@ -10,7 +10,9 @@ import {
   createOwnTrail, createDeviationPanel, trimGameUiForIgc,
 } from './igcview.js';
 // PDG(目標宣言)。?dev=1 でユーザーが有効にしたときだけ働く
-import { pdg, pdgActive, pdgLaunch, setupPdgUi, addGoal, drawGoalsOnMap, scorePdg, GOAL_COLORS } from './pdg.js';
+import {
+  pdg, pdgActive, pdgLaunch, setupPdgUi, addGoal, drawGoalsOnMap, scorePdg, GOAL_COLORS,
+} from './pdg.js';
 
 // ---- 舞台設定 ----
 const TILE_RADIUS = 2; // 5x5タイル ≒ 20km四方
@@ -1922,12 +1924,13 @@ function setupDevLaunchMap() {
     if (devLaunchSel.x === null) return;
     btn.disabled = false;
     if (pdgActive()) {
-      btn.textContent = `離陸!(目標${pdg.goals.length}個を宣言済み — 離陸すると変更できません)`;
+      const d = Math.hypot(devLaunchSel.x - pdg.goals[0].x, devLaunchSel.z - pdg.goals[0].z);
+      btn.textContent = `離陸!(宣言目標まで ${(d / 1000).toFixed(2)} km — 離陸すると変更できません)`;
       return;
     }
     if (pdg.enabled) {
       btn.disabled = true;
-      btn.textContent = '目標を1つ以上宣言してください';
+      btn.textContent = '地図で目標を宣言してください';
       return;
     }
     const d = Math.hypot(devLaunchSel.x - TARGET_XZ.x, devLaunchSel.z - TARGET_XZ.z);
@@ -2671,8 +2674,7 @@ function dropMarker() {
   marker.mesh = buildMarkerMesh();
   marker.mesh.position.copy(marker.state.pos);
   scene.add(marker.mesh);
-  document.getElementById('marker-info').textContent =
-    pdgActive() ? `投下! (残り${marker.available}本)` : '投下!';
+  document.getElementById('marker-info').textContent = '投下!';
 }
 
 function stepMarker(dt) {
@@ -2698,15 +2700,12 @@ function stepMarker(dt) {
 }
 
 function onMarkerLanded(pos) {
-  // PDG: 着地点を記録するだけ。採点はマーカーを使い切るか、時間切れ・着陸のときに行う
-  // (どのマーカーがどの目標を狙ったかは決めない。実データでも対応づけは読めなかった)
+  // PDG: 着地点を記録して採点する(いまはマーカー1本なので、投下=そこで確定)
   if (pdgActive()) {
     pdg.drops.push({ x: pos.x, z: pos.z });
     marker.mesh = null;
-    document.getElementById('marker-info').textContent =
-      marker.available > 0 ? `着地。残り${marker.available}本` : '全部投下しました';
     // まだ飛んでいるので、機体位置は計測に使わない(投下点だけで採点する)
-    if (marker.available <= 0) finishPdg('マーカーを使い切りました', false);
+    if (marker.available <= 0) finishPdg('マーカーを投下しました', false);
     return;
   }
 
@@ -2733,42 +2732,36 @@ function finishPdg(note, includeCurrentPos) {
   expired = true;   // 採点が出たら時計も止める
   const { rows, total } = scorePdg(state.pos, includeCurrentPos);
 
-  // 各目標への計測ラインを引く
-  for (const g of pdg.goals) {
-    const ground = terrain.getHeight(g.x, g.z);
-    const candidates = includeCurrentPos
-      ? pdg.drops.concat([{ x: state.pos.x, z: state.pos.z }])
-      : pdg.drops;
-    let nearest = null;
-    for (const p of candidates) {
-      const d = Math.hypot(p.x - g.x, p.z - g.z);
-      if (!nearest || d < nearest.d) nearest = { d, p };
-    }
-    if (!nearest) continue;
+  // 計測ライン(投下点 → 宣言目標)
+  pdg.goals.forEach((g) => {
+    const from = pdg.drops[0] || (includeCurrentPos ? { x: state.pos.x, z: state.pos.z } : null);
+    if (!from) return;
     scene.add(new THREE.Line(
       new THREE.BufferGeometry().setFromPoints([
-        new THREE.Vector3(nearest.p.x, terrain.getHeight(nearest.p.x, nearest.p.z) + 1, nearest.p.z),
-        new THREE.Vector3(g.x, ground + 1, g.z),
+        new THREE.Vector3(from.x, terrain.getHeight(from.x, from.z) + 1, from.z),
+        new THREE.Vector3(g.x, terrain.getHeight(g.x, g.z) + 1, g.z),
       ]),
       new THREE.LineBasicMaterial({ color: 0xffee58 })));
-  }
+  });
 
   const prev = Number(localStorage.getItem(PDG_BEST_KEY));
   const isBest = !Number.isFinite(prev) || prev <= 0 || total < prev;
   if (isBest) localStorage.setItem(PDG_BEST_KEY, total.toFixed(1));
 
-  const detail = rows.map((r) => {
-    if (!r.measured) return `目標${r.number}: 未計測（マーカー未投下）`;
-    return `目標${r.number}: ${r.distance.toFixed(1)} m${r.usedDrop ? '（投下点で計測）' : '（機体位置で計測）'}`;
-  }).join('<br>');
+  const row = rows[0];
+  const how = !row || !row.measured
+    ? 'マーカーを投下していません'
+    : (row.usedDrop ? '投下点から宣言目標まで' : '機体位置から宣言目標まで（未投下）');
+
   document.getElementById('result-title').textContent = 'PDG リザルト';
   document.getElementById('result-dist').textContent = total.toFixed(1);
   document.getElementById('result-sub').innerHTML = [
-    note, detail,
+    note,
+    `<span style="opacity:.8">${how}</span>`,
     isBest ? '自己ベスト更新!(PDG)' : `自己ベスト(PDG): ${Number(prev).toFixed(1)} m`,
   ].filter(Boolean).join('<br>');
   document.getElementById('result').style.display = '';
-  document.getElementById('marker-info').textContent = `合計 ${total.toFixed(1)} m`;
+  document.getElementById('marker-info').textContent = `${total.toFixed(1)} m`;
 }
 
 function showResult(dist, note) {

@@ -412,9 +412,17 @@ export function showIgcPanel(flight, options = {}) {
       + `<td>${g.altitudeFt !== null ? g.altitudeFt + ' ft' : '—'}</td></tr>`);
   const markerRows = flight.markers
     .sort((a, b) => a.seconds - b.seconds)
-    .map((m) => `<tr><td>マーカー${m.number}</td><td>${jstLabel(m.seconds)}</td>`
-      + `<td>${m.nearest ? `目標${m.nearest.number}へ ` + Math.round(m.nearest.distance) + ' m' : '—'}</td>`
-      + `<td>${m.agl !== null ? '対地 ' + Math.round(m.agl) + ' m' : '—'}</td></tr>`);
+    .map((m) => {
+      const nearest = m.nearest
+        ? `目標${m.nearest.number}へ ${Math.round(m.nearest.distance)} m`
+        : '—';
+      const others = m.distances.slice(1)
+        .map((d) => `目標${d.number} ${Math.round(d.distance)} m`).join('／');
+      const note = others ? `<span style="opacity:.6"><br>${others}</span>` : '';
+      return `<tr><td>投下${m.dropOrder}</td><td>${jstLabel(m.seconds)}</td>`
+        + `<td>${nearest}${note}</td>`
+        + `<td>${m.agl !== null ? '対地 ' + Math.round(m.agl) + ' m' : '—'}</td></tr>`;
+    });
 
   const panel = document.createElement('div');
   panel.style.cssText = `
@@ -436,9 +444,9 @@ export function showIgcPanel(flight, options = {}) {
         ${goalRows.join('')}${markerRows.join('')}
       </table>
       <div style="color:#8f8e86; font-size:11px; margin-bottom:10px">
-        目標の距離は離陸地点から。マーカーは<strong>最寄りの目標</strong>まで
-        （<strong>番号は対応しません</strong>。どの目標を狙った投下かはIGCから分かりません）。
-        <strong>得点は出しません。</strong>
+        目標の距離は離陸地点から。投下は<strong>最寄りの目標</strong>までを主に、他も薄字で併記します。
+        <strong>番号どうしは対応しません</strong>（競技のPDGは最も近い宣言目標で採点し、
+        またこのログは練習フライトです）。<strong>得点は出しません。</strong>
       </div>` : ''}
     <div style="padding:8px 10px; background:rgba(77,67,31,.5); border:1px solid #4d431f; border-radius:5px; color:#e3d094; font-size:12px">
       <strong>⚠ 画面に離着陸地点が写ります。</strong>

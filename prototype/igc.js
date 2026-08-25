@@ -316,16 +316,24 @@ export function buildFlight(igc) {
   for (const d of declarations.slice().sort((a, b) => a.seconds - b.seconds)) effective.set(d.number, d);
   for (const d of declarations) d.superseded = effective.get(d.number) !== d;
 
-  // ⚠ マーカー番号と目標番号は対応しない(2026-08-24に実データで確認)。
-  //   実例: M1 は「目標1から724m」ではなく「目標2から72m」だった。
-  //   IGCからは「どの目標を狙った投下か」は分からないので、**最寄りの目標**で見るしかない。
-  const activeGoals = [...effective.values()];
-  for (const marker of markers) {
+  // マーカーと目標の対応。
+  //
+  // ⚠ **番号どうしを対応させない。** 競技のPDGは
+  //   「the distance from the mark to **nearest valid declared goal**」= 最も近い宣言目標で採点する。
+  //   さらに**このログは練習フライト**で、そもそも競技規則が適用されていない(2026-08-25、提供者側の情報)。
+  //   **練習では順番も投下も自由**なので、対応規則を読み取ろうとしてはいけない。
+  //   実例: 投下1は目標1から724m、同じ投下が目標2からは72m。
+  //
+  // 事実として**すべての目標との距離を並べ、最寄りを主に出す**。
+  const activeGoals = [...effective.values()].sort((a, b) => a.number - b.number);
+  markers.sort((a, b) => a.seconds - b.seconds);
+  markers.forEach((marker, index) => {
+    marker.dropOrder = index + 1;
     marker.distances = activeGoals
       .map((g) => ({ number: g.number, distance: Math.hypot(marker.utm.easting - g.easting, marker.utm.northing - g.northing) }))
       .sort((a, b) => a.distance - b.distance);
     marker.nearest = marker.distances[0] || null;
-  }
+  });
 
   // ---- 高度別の風 ----
   // 2026-08-24: 当初「風の集計はSORAに複製しない」と決めていたが、
