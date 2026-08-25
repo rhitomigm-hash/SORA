@@ -140,8 +140,26 @@ function makeLabel(text, color) {
     map: texture, depthTest: false, transparent: true, fog: false,
   }));
   sprite.renderOrder = 10;
-  sprite.scale.set(width * 1.6, height * 1.6, 1);   // 世界座標(m)。数km離れても読める大きさ
+  // ⚠ 大きさは毎フレーム updateIgcLabels() が決める。
+  //   世界座標で固定にすると、**近づいたとき画面いっぱいの白い箱になる**
+  //   (2026-08-25に実際に出た。地形に隠れない設定なので余計に目立つ)
+  sprite.userData.aspect = width / height;
+  sprite.scale.set(width, height, 1);
   return sprite;
+}
+
+// ラベルの見かけの大きさを距離によらず一定に保つ。
+// 遠くでも読めて、近づいても巨大にならないようにする
+const LABEL_ANGULAR_SIZE = 0.055;   // カメラからの距離に対する高さの比
+const LABEL_MIN_M = 18;
+const LABEL_MAX_M = 260;
+
+export function updateIgcLabels(labels, camera) {
+  for (const sprite of labels) {
+    const distance = camera.position.distanceTo(sprite.position);
+    const height = Math.min(LABEL_MAX_M, Math.max(LABEL_MIN_M, distance * LABEL_ANGULAR_SIZE));
+    sprite.scale.set(height * sprite.userData.aspect, height, 1);
+  }
 }
 
 // 地面から軌跡まで板を立てる。上端は高度の色、下端はそれを暗くした色にして
@@ -203,7 +221,7 @@ function buildTrackLine(flight) {
 }
 
 // 地面に立てる目印(円盤＋細い柱)。目標も投下点も同じ形にして、色で区別する
-function buildStake(x, z, groundY, topY, color, labelText) {
+function buildStake(x, z, groundY, topY, color, labelText, labels) {
   const group = new THREE.Group();
   const height = Math.max(60, topY - groundY);
 
@@ -223,14 +241,16 @@ function buildStake(x, z, groundY, topY, color, labelText) {
   group.add(disc);
 
   const label = makeLabel(labelText, '#ffffff');
-  label.position.set(x, groundY + height + 70, z);
+  label.position.set(x, groundY + height + 40, z);
   group.add(label);
+  if (labels) labels.push(label);
 
   return group;
 }
 
 export function buildIgcScene(flight, terrain) {
   const group = new THREE.Group();
+  const labels = [];
   group.add(buildCurtain(flight, terrain));
   group.add(buildTrackLine(flight));
 
@@ -238,14 +258,14 @@ export function buildIgcScene(flight, terrain) {
 
   // 離陸地点
   const takeoffGround = terrain.getHeight(0, 0);
-  group.add(buildStake(0, 0, takeoffGround, takeoffGround + 80, TAKEOFF_COLOR, '離陸'));
+  group.add(buildStake(0, 0, takeoffGround, takeoffGround + 80, TAKEOFF_COLOR, '離陸', labels));
 
   // 宣言目標(有効なものだけ立てる。撤回されたものは出さない)
   for (const goal of flight.declarations) {
     if (goal.superseded) continue;
     const ground = terrain.getHeight(goal.x, goal.z);
     const declared = goal.altitudeFt !== null ? goal.altitudeFt / flight.FEET_PER_M : 80;
-    group.add(buildStake(goal.x, goal.z, ground, ground + declared, GOAL_COLOR, `目標${goal.number}`));
+    group.add(buildStake(goal.x, goal.z, ground, ground + declared, GOAL_COLOR, `目標${goal.number}`, labels));
     points.push({ x: goal.x, z: goal.z, y: ground + declared });
     terrain.requestDetail(goal.x, goal.z);
   }
@@ -254,7 +274,7 @@ export function buildIgcScene(flight, terrain) {
   for (const marker of flight.markers) {
     const ground = terrain.getHeight(marker.x, marker.z);
     const top = marker.y !== null ? Math.max(marker.y, ground + 10) : ground + 80;
-    group.add(buildStake(marker.x, marker.z, ground, top, MARKER_COLOR, `M${marker.number}`));
+    group.add(buildStake(marker.x, marker.z, ground, top, MARKER_COLOR, `M${marker.dropOrder}`, labels));
     const ball = new THREE.Mesh(
       new THREE.SphereGeometry(14, 16, 12),
       new THREE.MeshBasicMaterial({ color: MARKER_COLOR, fog: false }));
@@ -270,7 +290,7 @@ export function buildIgcScene(flight, terrain) {
     minZ: Math.min(...points.map((p) => p.z)), maxZ: Math.max(...points.map((p) => p.z)),
     minY: Math.min(...points.map((p) => p.y)), maxY: Math.max(...points.map((p) => p.y)),
   };
-  return { group, bounds };
+  return { group, bounds, labels };
 }
 
 // ---- 自分の軌跡 ------------------------------------------------------------
@@ -478,14 +498,20 @@ export function showIgcPanel(flight, options = {}) {
   }
 }
 
-// 飛ぶ・なぞるでは計器を残すが、意味を失う行だけ消す。
-//   ターゲット … JDGのターゲットは世界原点(=IGCの離陸地点)なので「離陸地点までの距離」になってしまう
+// 飛ぶ・なぞるでは計器を残すが、意味を失うものだけ消す。
+//   ターゲット … JDGのターゲットは世界原点(=IGCの離陸地点)なので「離陸地点までの距離」になる
 //   残り時間   … IGCモードでは時計を止めている(実測が30分を超えることがあるため)
+//   マーカー   … 飛行ログのモードに得点は無い(投下も塞いである)
 export function trimGameUiForIgc() {
-  for (const id of ['target-info', 'clock']) {
+  for (const id of ['target-info', 'clock', 'marker-info']) {
     const el = document.getElementById(id);
     if (el && el.parentElement) el.parentElement.style.display = 'none';
   }
+  // ⚠ 住所検索は隠す。検索すると ?a= を足して再読み込みするが、**?igc=1 が残ったまま**なので
+  //   IGCモードで起動し直し、ファイル選択に戻ってしまう(2026-08-25に実際に出た)。
+  //   エリアはIGCの離陸地点から決まるので、そもそもこのモードで動かす意味がない
+  const search = document.getElementById('area-search');
+  if (search) search.style.display = 'none';
 }
 
 // ゲーム用のUI(計器・コンパス・操作ボタンなど)は出さない。

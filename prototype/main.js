@@ -7,7 +7,7 @@ import { buildTerrain, lonLatToTile } from './terrain.js';
 // 飛行ログ(IGC)の3D表示(?igc=1)。既定の起動には関与しない
 import {
   selectIgcFlight, buildIgcScene, showIgcPanel, hideGameUi, createNorthIndicator,
-  createOwnTrail, createDeviationPanel, trimGameUiForIgc,
+  createOwnTrail, createDeviationPanel, trimGameUiForIgc, updateIgcLabels,
 } from './igcview.js';
 // PDG(目標宣言)。?dev=1 でユーザーが有効にしたときだけ働く
 import {
@@ -949,9 +949,11 @@ let igcBounds = null;
 let igcNorth = null;
 let igcTrail = null;
 let igcDeviation = null;
+let igcLabels = null;
 if (igcFlight) {
   const igcScene = buildIgcScene(igcFlight, terrain);
   scene.add(igcScene.group);
+  igcLabels = igcScene.labels;
   showIgcPanel(igcFlight, { collapsed: igcFlies });
   // 飛ぶ・なぞるではゲームのコンパス(#compass)が出るので、見るだけのときに置く
   if (!igcFlies) igcNorth = createNorthIndicator();
@@ -2662,6 +2664,9 @@ function buildPdgGoals() {
 const marker = { available: 1, state: null, mesh: null };
 
 function dropMarker() {
+  // ?igc=1 の飛ぶ・なぞるに得点は無い。投下するとJDGのリザルトが出てしまうので塞ぐ
+  // (JDGのターゲットは世界原点=IGCの離陸地点で、距離に意味がない)
+  if (igcFlies) return;
   if (marker.available <= 0 || state.grounded || expired) return;
   if (marker.state && !marker.state.landed) return;   // 落下中は次を投下しない
   marker.available -= 1;
@@ -3083,6 +3088,9 @@ renderer.setAnimationLoop(() => {
       if (agl < 1000) terrain.requestUltra(state.pos.x, state.pos.z);
     }
   }
+
+  // ?igc=1: ラベルの見かけの大きさを一定に保つ(近づいても巨大にならないように)
+  if (igcLabels) updateIgcLabels(igcLabels, camera);
 
   // ?igc=1: 飛ばないので、見ているあたりの地面を段階的に高解像度化する
   if (igcBounds) {
