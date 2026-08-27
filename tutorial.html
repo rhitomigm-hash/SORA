@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SORA のあそびかた</title>
+<style>
+  :root{
+    --bg:#0b1220; --panel:#131c2e; --line:#26344f;
+    --fg:#e8eef8; --dim:#9fb0c8; --accent:#9ecfff; --fire:#ff9d4d;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font-family:"Hiragino Kaku Gothic ProN","Yu Gothic",Meiryo,system-ui,sans-serif;
+    line-height:1.9; font-size:16px;
+  }
+  .wrap{max-width:780px; margin:0 auto; padding:24px 18px 80px}
+  header{text-align:center; padding:40px 0 24px; border-bottom:1px solid var(--line)}
+  h1{margin:0; font-size:34px; letter-spacing:.2em}
+  .tagline{color:var(--dim); margin-top:8px; font-size:15px}
+  .start{display:inline-block; margin-top:22px; padding:12px 28px; border-radius:8px;
+    background:var(--fire); color:#221000; font-weight:bold; text-decoration:none}
+  h2{margin:44px 0 12px; font-size:22px; border-left:5px solid var(--accent); padding-left:12px}
+  h3{margin:26px 0 6px; font-size:17px; color:var(--accent)}
+  p{margin:10px 0}
+  .panel{background:var(--panel); border:1px solid var(--line); border-radius:10px;
+    padding:16px 18px; margin:14px 0}
+  .note{border-left:4px solid var(--fire)}
+  table{width:100%; border-collapse:collapse; margin:12px 0; font-size:15px}
+  th,td{border:1px solid var(--line); padding:8px 10px; text-align:left; vertical-align:top}
+  th{background:#1a2740; white-space:nowrap; width:34%}
+  kbd{background:#22314d; border:1px solid var(--line); border-bottom-width:2px;
+    border-radius:5px; padding:1px 7px; font-size:14px; font-family:inherit}
+  ol,ul{padding-left:1.4em; margin:10px 0}
+  li{margin:6px 0}
+  .dim{color:var(--dim); font-size:14px}
+  .toc a{color:var(--accent); text-decoration:none}
+  .toc a:hover{text-decoration:underline}
+  footer{margin-top:60px; padding-top:20px; border-top:1px solid var(--line);
+    color:var(--dim); font-size:14px; text-align:center}
+  a{color:var(--accent)}
+  .scroll{overflow-x:auto}
+  img{max-width:100%; height:auto; display:block}
+  .hero{margin:0 auto 18px; max-width:340px; border-radius:12px;
+    border:1px solid var(--line); box-shadow:0 6px 24px rgba(0,0,0,.45)}
+  .story{border-radius:10px; border:1px solid var(--line)}
+  .story-cap{color:var(--dim); font-size:14px; margin-top:8px; text-align:center}
+  .hero-name{text-align:center; color:var(--dim); font-size:14px; margin:-6px 0 4px}
+  .hero-name b{color:var(--fg); font-size:16px; letter-spacing:.05em}
+  .zoomable{cursor:zoom-in}
+  /* 拡大表示。ページの中で開いて、その場で閉じられるようにする
+     (別タブで開くと「戻れない」という声があったため) */
+  #lightbox{position:fixed; inset:0; background:rgba(5,9,16,.94); z-index:100;
+    display:none; overflow:auto; padding:56px 12px 24px; text-align:center}
+  #lightbox.open{display:block}
+  #lightbox img{margin:0 auto; border-radius:8px; max-width:none; width:1400px}
+  #lightbox-close{position:fixed; top:10px; right:12px; z-index:101;
+    background:var(--panel); color:var(--fg); border:1px solid var(--line);
+    border-radius:8px; padding:10px 18px; font-size:16px; font-family:inherit; cursor:pointer}
+  #lightbox-hint{position:fixed; top:18px; left:14px; z-index:101;
+    color:var(--dim); font-size:13px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <img class="hero" src="assets/sora-hero.jpg"
+       alt="熱気球のゴンドラから身を乗り出して手をふる少年、SOYOKAのSORA。眼下に川と町、空にはほかの気球が浮かんでいる。">
+  <div class="hero-name">イメージキャラクター<br><b>SOYOKA の SORA</b></div>
+  <h1>SORA</h1>
+  <div class="tagline">熱気球のフライトを、誰でもすぐに。</div>
+  <a class="start" href="prototype/">さっそく飛んでみる</a>
+</header>
+
+<div class="panel toc">
+  <strong>このページの中身</strong>
+  <ul>
+    <li><a href="#story">0. ソラの物語（まんがで読む）</a></li>
+    <li><a href="#what">1. SORA ってなに？</a></li>
+    <li><a href="#idea">2. 熱気球は「上下」しか動かせない</a></li>
+    <li><a href="#control">3. 操作のしかた</a></li>
+    <li><a href="#panel">4. 画面の見かた</a></li>
+    <li><a href="#first">5. はじめてのフライト（この順にやってみよう）</a></li>
+    <li><a href="#game">6. 競技モード（JDG）で得点をねらう</a></li>
+    <li><a href="#serious">7. 本格モード</a></li>
+    <li><a href="#igc">8. 本物の飛行ログを 3D で見る</a></li>
+    <li><a href="#trouble">9. うまくいかないとき</a></li>
+  </ul>
+</div>
+
+<h2 id="story">0. ソラの物語</h2>
+<p>
+このゲームの遊びかたは、まんがでひととおり分かるようになっています。
+文字を読むのがめんどうなときは、<strong>まずこれだけ見れば大丈夫</strong>です。
+</p>
+<img class="story zoomable" src="assets/sora-story.jpg"
+     alt="全12コマの物語。空が好きな少年ソラが、風は空の中の見えない道だと知り、風を記録し、熱気球を手に入れ、JDG競技でパイバルデータから作戦を立て、風を乗り換えながらターゲットへ近づき、マーカーを投下して 8.4m の結果を得るまで。">
+<div class="story-cap">
+  画像をクリックすると大きくなります。<strong>閉じるボタン</strong>か <kbd>Esc</kbd> でもどります。
+</div>
+<p>
+物語の中で <strong>SOYOKA の SORA</strong> がやっていることは、そのまま SORA の遊びかたです。
+<strong>風を読む → 高さを選ぶ → 目標へ近づく → マーカーを落とす</strong>。
+くわしくは、この先で順に説明していきます。
+</p>
+
+<h2 id="what">1. SORA ってなに？</h2>
+<p>
+SORA は、<strong>熱気球を飛ばすシミュレーター</strong>です。
+ブラウザで開くだけで遊べます。アプリを入れる必要はありません。
+</p>
+<p>
+地面の形は、国土地理院が公開している<strong>本物の地形データ</strong>から作っています。
+だから、自分の住んでいる町の上を飛ぶこともできます。
+</p>
+
+<h2 id="idea">2. 熱気球は「上下」しか動かせない</h2>
+<p>
+ここが、この遊びのいちばん大事なところです。
+</p>
+<p>
+飛行機やドローンとちがって、熱気球には<strong>前に進むための装置がありません</strong>。
+ハンドルもアクセルもついていません。自分でできるのは、
+<strong>上がる</strong>か<strong>下がる</strong>かの2つだけです。
+</p>
+<div class="panel note">
+  <p style="margin:0">
+  <strong>では、どうやって行きたい方向へ進むの？</strong><br>
+  空の風は、<strong>高さによって向きも速さもちがいます</strong>。
+  地面の近くでは北へ流れているのに、500m 上では東へ流れている、ということがふつうに起きます。<br>
+  だから熱気球は、<strong>行きたい方向へ吹いている高さまで上下して、その風に乗る</strong>のです。
+  「高さを選ぶこと」が「方向を選ぶこと」になります。
+  </p>
+</div>
+<p>
+SORA でうまく飛べるようになるコツは、操作をすばやくすることではありません。
+<strong>どの高さにどんな風が吹いているかを読むこと</strong>です。
+</p>
+
+<h2 id="control">3. 操作のしかた</h2>
+
+<h3>パソコン（キーボード）</h3>
+<div class="scroll">
+<table>
+  <tr><th><kbd>Space</kbd>（長押し）</th>
+      <td><strong>バーナー</strong>。空気をあたためて<strong>上がります</strong>。押しっぱなしにするほど強く上がります。</td></tr>
+  <tr><th><kbd>R</kbd>（長押し）</th>
+      <td><strong>リップライン</strong>。気球のてっぺんの穴を開けて熱をにがし、<strong>下がります</strong>。着陸のときに使います。</td></tr>
+  <tr><th><kbd>M</kbd></th>
+      <td><strong>マーカー投下</strong>。目標をねらって、おもり（マーカー）を落とします。</td></tr>
+  <tr><th><kbd>V</kbd></th>
+      <td><strong>視点の切りかえ</strong>。ゴンドラの中から見る ⇔ 外から気球を見る。</td></tr>
+  <tr><th><kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> <kbd>4</kbd></th>
+      <td><strong>時間を早送り</strong>。×1 / ×2 / ×4 / ×8。風がゆっくりで退屈なときに使います。</td></tr>
+  <tr><th><kbd>P</kbd></th>
+      <td><strong>パイバル表</strong>の表示・非表示。高さごとの風の一覧です（次の章で説明します）。</td></tr>
+  <tr><th>マウスをドラッグ</th><td>見る向きを回します。</td></tr>
+  <tr><th>マウスのホイール</th><td>拡大・縮小します。</td></tr>
+</table>
+</div>
+
+<h3>スマートフォン・タブレット</h3>
+<p>画面の下にボタンが出ます。指でさわって操作します。</p>
+<div class="scroll">
+<table>
+  <tr><th>🔥（長押し）</th><td>バーナー。上がる。</td></tr>
+  <tr><th>RIP（長押し）</th><td>リップライン。下がる。</td></tr>
+  <tr><th>📍</th><td>マーカー投下。</td></tr>
+  <tr><th>👁</th><td>視点の切りかえ。</td></tr>
+  <tr><th>×1</th><td>時間の早送り（押すたびに変わります）。</td></tr>
+  <tr><th>P</th><td>パイバル表の表示・非表示。</td></tr>
+  <tr><th>画面をなぞる / 指でひろげる</th><td>見る向きを回す / 拡大・縮小。</td></tr>
+</table>
+</div>
+
+<h2 id="panel">4. 画面の見かた</h2>
+
+<h3>左上の計器パネル</h3>
+<div class="scroll">
+<table>
+  <tr><th>大きな数字（ft）</th><td>いまの高さ。フィートという単位です（1ft ≒ 0.3m）。本物の気球でもフィートを使います。</td></tr>
+  <tr><th>高度(MSL)</th><td>海面から数えた高さ（m）。</td></tr>
+  <tr><th>対地高度</th><td><strong>地面から数えた高さ</strong>（m）。ぶつからないためにはこちらを見ます。</td></tr>
+  <tr><th>昇降</th><td>1秒に何メートル上がっているか。プラスなら上昇、マイナスなら下降。</td></tr>
+  <tr><th>風(現在高度)</th><td>いまいる高さの風。<strong>「◯◯° / ◯◯kt」</strong>＝ 風が<strong>吹いてくる</strong>向きと速さ。</td></tr>
+  <tr><th>燃料</th><td>バーナーを使うと減ります。0 になると上がれません。</td></tr>
+  <tr><th>状態</th><td>接地・上昇中などの、いまのようす。</td></tr>
+  <tr><th>ターゲット</th><td>目標までの距離と方角。</td></tr>
+  <tr><th>マーカー</th><td>残っているマーカーの数。</td></tr>
+  <tr><th>残り時間</th><td>競技の制限時間。</td></tr>
+</table>
+</div>
+
+<div class="panel note">
+  <p style="margin:0">
+  <strong>気をつけること：風の向きは「反対」に読む</strong><br>
+  気象の世界では、風向きは<strong>吹いてくる方角</strong>で表します。
+  「風 0°」は<strong>北から吹いてくる</strong>という意味なので、
+  気球は<strong>南へ流されます</strong>。ここを反対に覚えると、まったく逆へ飛んでいってしまいます。
+  </p>
+</div>
+
+<h3>パイバル表（<kbd>P</kbd> キー）</h3>
+<p>
+高さごとの風の一覧表です。名前は「パイロットバルーン（pilot balloon）」から来ています。
+本物の競技でも、小さなゴム風船を飛ばして上空の風を調べてから飛びます。
+</p>
+<p>
+<strong>この表が作戦そのものです。</strong>
+行きたい方向へ流してくれる風がどの高さにあるかを、ここで探します。
+</p>
+
+<h3>右下のコンパス</h3>
+<p>いまどちらを向いているか、目標がどちらかを示します。</p>
+
+<h2 id="first">5. はじめてのフライト</h2>
+<p>むずかしく考えず、この順にやってみてください。</p>
+<ol>
+  <li><a href="prototype/">SORA をひらく</a>。地形の読み込みが終わるのを待ちます。</li>
+  <li><kbd>P</kbd> を押して<strong>パイバル表を出し</strong>、目標の方へ流してくれそうな高さを探します。</li>
+  <li><kbd>Space</kbd> を<strong>長押し</strong>して離陸します。あわてなくて大丈夫です。ゆっくり上がります。</li>
+  <li>ねらった高さに近づいたら、<strong>指をはなします</strong>。気球はすぐには止まらず、しばらく上がり続けます。<br>
+      <span class="dim">→ 熱気球はブレーキがききません。<strong>早めに手をはなす</strong>のがコツです。</span></li>
+  <li>流されている方向を見ます。ちがったら、上か下の別の高さへ移ります。</li>
+  <li>目標の上に来たら <kbd>M</kbd> で<strong>マーカーを投下</strong>。</li>
+  <li>降りるときは <kbd>R</kbd> を長押し。ゆっくり下げて着陸します。</li>
+</ol>
+<div class="panel">
+  <p style="margin:0">
+  <strong>最初はうまくいきません。それでふつうです。</strong>
+  行きすぎたり、思った方向へ行かなかったりします。
+  本物の熱気球のパイロットも同じことをしています。
+  <strong>1回ごとに「どの高さがどっちへ行くか」を覚えていくのが上達の道</strong>です。
+  </p>
+</div>
+
+<h2 id="game">6. 競技モード（JDG）で得点をねらう</h2>
+<p>
+SORA の競技は <strong>JDG</strong>（ジャッジ・ディクレアード・ゴール）といいます。
+実際の熱気球競技にある種目のひとつです。
+</p>
+<div class="scroll">
+<table>
+  <tr><th>目標（ターゲット）</th><td>地図の上の<strong>オレンジ色の ×</strong> のところ。</td></tr>
+  <tr><th>やること</th><td>その上まで飛んでいって、マーカーを落とす。</td></tr>
+  <tr><th>マーカー</th><td>1本だけ（<kbd>M</kbd> で投下）。<strong>やり直せません。</strong></td></tr>
+  <tr><th>スコア</th><td>マーカーが落ちた場所から<strong>目標までの距離</strong>。<strong>短いほど良い</strong>です。</td></tr>
+</table>
+</div>
+<p>
+作戦のきほんは、<strong>目標の風上側から入っていくこと</strong>です。
+風上とは、風が吹いてくる側のこと。そこから目標に向かって流されるように高さを選びます。
+</p>
+
+<h2 id="serious">7. 本格モード</h2>
+<p>
+画面の下にある「<strong>本格モード</strong>」から入れます。
+飛ぶ場所・風・離陸地点を、<strong>自分で決められる</strong>モードです。
+</p>
+<ul>
+  <li><strong>エリアを選ぶ</strong> … 地図をクリックして、飛びたい場所を決めます。住所や地名で検索もできます。</li>
+  <li><strong>風を決める</strong> … 高さごとの風向・風速を、表に自分で書き込めます。</li>
+  <li><strong>離陸地点を選ぶ</strong> … 地図の上でクリックします。ここの選びかたで結果が大きく変わります。</li>
+  <li><strong>条件URLをコピー</strong> … いまの設定をリンクにできます。友だちに送れば<strong>同じ条件で勝負</strong>できます。</li>
+</ul>
+<p class="dim">
+「開発途中版」というボタンもありますが、これは新しい機能をためすためのもので、
+うまく動かないことがあります。慣れてからで大丈夫です。
+</p>
+
+<h2 id="igc">8. 本物の飛行ログを 3D で見る</h2>
+<p>
+熱気球には、飛んだ記録を残す機械（ロガー）が積まれていて、
+<strong>IGC ファイル</strong>という形で保存されます。
+SORA は、そのファイルを読んで<strong>飛んだ道すじを 3D で見せる</strong>ことができます。
+「本格モード」→「飛行ログ(IGC)を読み込む」から使います。
+</p>
+<div class="scroll">
+<table>
+  <tr><th>見る</th><td>飛んだ道すじを、外から自由に眺めます。</td></tr>
+  <tr><th>飛ぶ（復習）</th><td>その日の<strong>実際の風</strong>の中を、自分で操作して飛んでみます。</td></tr>
+  <tr><th>なぞる（検証）</th><td>本物の記録と、自分の飛びかたを<strong>並べて比べます</strong>。</td></tr>
+</table>
+</div>
+<div class="panel note">
+  <p style="margin:0">
+  <strong>ファイルは外に送られません。</strong>
+  読み込んだ飛行ログは、あなたのブラウザの中だけで処理されます。
+  どこかのサーバーへ送ったり、保存したりはしません。
+  </p>
+</div>
+
+<h2 id="trouble">9. うまくいかないとき</h2>
+<div class="scroll">
+<table>
+  <tr><th>上がらない</th><td>燃料が 0 になっていませんか。また、バーナーは<strong>あたためてから効きはじめる</strong>ので、すぐには上がりません。数秒待ってください。</td></tr>
+  <tr><th>止まらない・行きすぎる</th><td>熱気球にブレーキはありません。<strong>目標より手前で操作をやめる</strong>のが正解です。</td></tr>
+  <tr><th>思った方向へ行かない</th><td>風向きは「<strong>吹いてくる</strong>方角」です。気球はその<strong>反対</strong>へ流されます。<kbd>P</kbd> でパイバル表を見て、別の高さを試してください。</td></tr>
+  <tr><th>画面が真っ暗・進まない</th><td>地形データの読み込みに時間がかかっています。少し待つか、ページを開きなおしてください。</td></tr>
+  <tr><th>動きがカクカクする</th><td>ほかのタブを閉じてみてください。3D の表示はパソコンに負担がかかります。</td></tr>
+</table>
+</div>
+
+<footer>
+  地形・写真：<a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院 地理院タイル</a> ／
+  住所検索：<a href="https://msearch.gsi.go.jp/address-search/" target="_blank" rel="noopener">国土地理院 Address Search API</a><br>
+  SORA は熱気球のシミュレーターです。<strong>実際の運航の判断には使えません。</strong>
+  本物の気象の情報は気象庁の発表を確認してください。
+</footer>
+
+</div>
+
+<div id="lightbox">
+  <div id="lightbox-hint">ドラッグ・スクロールで動かせます</div>
+  <button id="lightbox-close" type="button">✕ 閉じる</button>
+  <img id="lightbox-img" src="" alt="">
+</div>
+
+<script>
+(function () {
+  var box   = document.getElementById('lightbox');
+  var img   = document.getElementById('lightbox-img');
+  var close = document.getElementById('lightbox-close');
+
+  function open(src, alt) {
+    img.src = src; img.alt = alt || '';
+    box.classList.add('open');
+    box.scrollTop = 0; box.scrollLeft = 0;
+    document.body.style.overflow = 'hidden';
+    close.focus();
+  }
+  function shut() {
+    box.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+  Array.prototype.forEach.call(document.querySelectorAll('.zoomable'), function (el) {
+    el.addEventListener('click', function () { open(el.src, el.alt); });
+  });
+
+  close.addEventListener('click', shut);
+  // 画像そのもの以外(背景)をクリックしても閉じる
+  box.addEventListener('click', function (e) { if (e.target !== img) shut(); });
+  document.addEventListener('keydown', function (e) {
+    if (e.key === 'Escape' && box.classList.contains('open')) shut();
+  });
+})();
+</script>
+</body>
+</html>
