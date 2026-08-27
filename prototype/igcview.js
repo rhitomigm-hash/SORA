@@ -51,7 +51,9 @@ export function selectIgcFlight() {
           自分以外の方のログを扱うときは、提供者の意向をご確認ください。</p>
         <p style="margin:0 0 14px; color:#c3c2b7; font-size:13px">
           ファイルはブラウザの中だけで処理し、<strong>どこにも送信しません</strong>。</p>
-        <input type="file" accept=".igc,.IGC,text/plain" id="igc-pick"
+        <!-- accept は付けない。iOSは拡張子ではなくUTIで判定し、.igc は未登録のため
+             accept を書くとファイルが灰色になって選べなくなる(2026-08-28にiPhoneで確認) -->
+        <input type="file" id="igc-pick"
                style="font:inherit; font-size:13px; color:#c3c2b7">
         <p id="igc-err" style="margin:14px 0 0; color:#ef7a63; font-size:13px; display:none"></p>
 
@@ -81,6 +83,14 @@ export function selectIgcFlight() {
     document.body.appendChild(overlay);
 
     let loaded = null;
+    // 想定内のエラー(日本語の完結した文)はそのまま、想定外(TypeError等)だけ前置きを付ける
+    const showError = (message) => {
+      const err = overlay.querySelector('#igc-err');
+      err.textContent = /。$/.test(message) ? message : '読み取れませんでした: ' + message;
+      err.style.display = '';
+      overlay.querySelector('#igc-modes').style.display = 'none';
+    };
+
     overlay.querySelector('#igc-pick').addEventListener('change', (event) => {
       const file = event.target.files[0];
       if (!file) return;
@@ -97,11 +107,15 @@ export function selectIgcFlight() {
           overlay.querySelector('#igc-modes').style.display = '';
           overlay.querySelector('#igc-err').style.display = 'none';
         } catch (e) {
-          const err = overlay.querySelector('#igc-err');
-          err.textContent = '読み取れませんでした: ' + e.message;
-          err.style.display = '';
+          showError(e.message);
         }
       };
+      // 動画などを選ぶと readAsText が固まる。IGCは1時間の飛行でも数百KB
+      if (file.size > 20 * 1024 * 1024) {
+        showError('ファイルが大きすぎます（' + Math.round(file.size / 1024 / 1024) + 'MB）。'
+          + 'IGCファイルではないようです。動画や写真を選んでいないかご確認ください。');
+        return;
+      }
       reader.readAsText(file, 'utf-8');
     });
 

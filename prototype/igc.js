@@ -244,7 +244,12 @@ function toPibalRows(bands, bandSize) {
 //
 export function buildFlight(igc) {
   const fixes = igc.fixes.filter((f) => f.pressureAlt !== null);
-  if (fixes.length < 2) throw new Error('Bレコード(位置の記録)が読めませんでした。');
+  // 文言は「書式を知らない人が写真を選んでしまった場合」に合わせてある。
+  // accept を外した(iOSで灰色になるため)ので、非IGCを選べてしまう
+  if (fixes.length < 2) {
+    throw new Error('IGCファイルではないようです（位置の記録が入っていません）。'
+      + '写真や別の書類を選んでいないかご確認ください。');
+  }
 
   // 地上の基準。気圧高度は1013hPa基準で当日気圧に合っていないので、生の値に閾値を当てない
   // (実測で地上の気圧高度が日により28m違った)
