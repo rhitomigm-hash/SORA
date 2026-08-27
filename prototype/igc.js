@@ -65,6 +65,101 @@ function readFixBlock(line, start, seconds, extensions) {
   return fix;
 }
 
+// ---- ファイルを文字列にする(ZIPならほどく) ----
+//
+// ⚠ この節は `tools/igc-view.html` にも同じものを書き写してある(冒頭の約束どおり)。
+//    直すときは向こうも直すこと。
+//
+// ライブラリは使わない(ビルド不要・単体で開ける約束)。ブラウザ内蔵の
+// DecompressionStream('deflate-raw') があれば、ZIPは自前でほどける。
+// 対応: iOS 16.4以降 / Chrome 103以降。古い端末では下でその旨を出す。
+
+const ZIP_LOCAL_SIG   = 0x04034b50;
+const ZIP_CENTRAL_SIG = 0x02014b50;
+const ZIP_EOCD_SIG    = 0x06054b50;
+
+// 中央ディレクトリを読んで、入っているファイルの一覧を作る
+function listZipEntries(view) {
+  // 末尾から EOCD(終端レコード)を探す。コメントが付いていることがあるので後ろから走査する
+  let eocd = -1;
+  const from = Math.max(0, view.byteLength - 65557);
+  for (let i = view.byteLength - 22; i >= from; i--) {
+    if (view.getUint32(i, true) === ZIP_EOCD_SIG) { eocd = i; break; }
+  }
+  if (eocd < 0) throw new Error('ZIPファイルとして読めませんでした（終端が見つかりません）。');
+
+  const count  = view.getUint16(eocd + 10, true);
+  const offset = view.getUint32(eocd + 16, true);
+  if (count === 0xffff || offset === 0xffffffff) {
+    throw new Error('ZIP64形式には対応していません。展開してからIGCを選んでください。');
+  }
+
+  const entries = [];
+  let p = offset;
+  for (let i = 0; i < count; i++) {
+    if (view.getUint32(p, true) !== ZIP_CENTRAL_SIG) break;
+    const flags    = view.getUint16(p + 8, true);
+    const method   = view.getUint16(p + 10, true);
+    const compSize = view.getUint32(p + 20, true);
+    const nameLen  = view.getUint16(p + 28, true);
+    const extraLen = view.getUint16(p + 30, true);
+    const cmtLen   = view.getUint16(p + 32, true);
+    const local    = view.getUint32(p + 42, true);
+    const name = new TextDecoder('utf-8').decode(
+      new Uint8Array(view.buffer, view.byteOffset + p + 46, nameLen));
+    entries.push({ name, flags, method, compSize, local });
+    p += 46 + nameLen + extraLen + cmtLen;
+  }
+  return entries;
+}
+
+async function readZipEntry(view, entry) {
+  if (entry.flags & 0x0001) {
+    throw new Error('パスワード付きのZIPは読めません。展開してからIGCを選んでください。');
+  }
+  // データの位置はローカルヘッダを読んでから決める(中央ディレクトリとは長さが違うことがある)
+  if (view.getUint32(entry.local, true) !== ZIP_LOCAL_SIG) {
+    throw new Error('ZIPファイルとして読めませんでした（見出しが壊れています）。');
+  }
+  const nameLen  = view.getUint16(entry.local + 26, true);
+  const extraLen = view.getUint16(entry.local + 28, true);
+  const start = entry.local + 30 + nameLen + extraLen;
+  const raw = new Uint8Array(view.buffer, view.byteOffset + start, entry.compSize);
+
+  if (entry.method === 0) return raw;                      // 無圧縮でそのまま入っている
+  if (entry.method !== 8) {
+    throw new Error('このZIPの圧縮方式には対応していません。展開してからIGCを選んでください。');
+  }
+  if (typeof DecompressionStream === 'undefined') {
+    throw new Error('このブラウザではZIPを開けません。展開してからIGCを選んでください。');
+  }
+  const stream = new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+  return new Uint8Array(await new Response(stream).arrayBuffer());
+}
+
+// ファイル(IGCそのもの / IGCを入れたZIP)を文字列にして返す
+export async function readIgcText(file) {
+  const buffer = await file.arrayBuffer();
+  const view = new DataView(buffer);
+  // 拡張子ではなく中身の先頭で判定する(iOSは名前を変えることがある)
+  const isZip = buffer.byteLength >= 4 && view.getUint32(0, true) === ZIP_LOCAL_SIG;
+  if (!isZip) return new TextDecoder('utf-8').decode(buffer);
+
+  // ZIPが作るフォルダー項目(末尾が/)と、macOSが混ぜる __MACOSX の影を除く
+  const igcs = listZipEntries(view).filter((e) =>
+    /\.igc$/i.test(e.name) && !e.name.endsWith('/') && !/(^|\/)(__MACOSX\/|\._)/.test(e.name));
+
+  if (!igcs.length) {
+    throw new Error('ZIPの中にIGCファイルが見つかりませんでした。');
+  }
+  if (igcs.length > 1) {
+    throw new Error('ZIPに複数のIGCが入っています（'
+      + igcs.map((e) => e.name.split('/').pop()).join('、')
+      + '）。展開して1つを選んでください。');
+  }
+  return new TextDecoder('utf-8').decode(await readZipEntry(view, igcs[0]));
+}
+
 // ---- ファイル全体 ----
 
 export function parseIgc(text) {

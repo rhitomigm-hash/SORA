@@ -14,7 +14,7 @@
 //   飛行は数km規模になることがあり、霧に入ると軌跡が読めなくなるため(2026-08-24)。
 
 import * as THREE from 'three';
-import { parseIgc, buildFlight, jstLabel } from './igc.js';
+import { parseIgc, buildFlight, jstLabel, readIgcText } from './igc.js';
 
 const GOAL_COLOR = 0xd94b32;
 const MARKER_COLOR = 0x9a5cd0;
@@ -50,7 +50,8 @@ export function selectIgcFlight() {
           <strong>スクリーンショットを共有すると、どこから飛んでどこへ降りたかが分かります</strong>。
           自分以外の方のログを扱うときは、提供者の意向をご確認ください。</p>
         <p style="margin:0 0 14px; color:#c3c2b7; font-size:13px">
-          ファイルはブラウザの中だけで処理し、<strong>どこにも送信しません</strong>。</p>
+          ファイルはブラウザの中だけで処理し、<strong>どこにも送信しません</strong>。
+          IGCが1つだけ入った<strong>ZIPのままでも読めます</strong>。</p>
         <!-- accept は付けない。iOSは拡張子ではなくUTIで判定し、.igc は未登録のため
              accept を書くとファイルが灰色になって選べなくなる(2026-08-28にiPhoneで確認) -->
         <input type="file" id="igc-pick"
@@ -91,32 +92,28 @@ export function selectIgcFlight() {
       overlay.querySelector('#igc-modes').style.display = 'none';
     };
 
-    overlay.querySelector('#igc-pick').addEventListener('change', (event) => {
+    overlay.querySelector('#igc-pick').addEventListener('change', async (event) => {
       const file = event.target.files[0];
       if (!file) return;
-      const reader = new FileReader();
-      reader.onload = () => {
-        try {
-          loaded = buildFlight(parseIgc(reader.result));
-          const rows = loaded.pibalRows.length;
-          overlay.querySelector('#igc-summary').innerHTML =
-            `${loaded.dateText}　${jstLabel(loaded.takeoff.seconds).slice(0, 5)}〜`
-            + `${jstLabel(loaded.landing.seconds).slice(0, 5)} JST　`
-            + `高度 ${Math.round(loaded.mslRange[0])}〜${Math.round(loaded.mslRange[1])} m<br>`
-            + `実測の風: <strong>${rows}層</strong>（n が10未満の高度帯は除いています）`;
-          overlay.querySelector('#igc-modes').style.display = '';
-          overlay.querySelector('#igc-err').style.display = 'none';
-        } catch (e) {
-          showError(e.message);
-        }
-      };
-      // 動画などを選ぶと readAsText が固まる。IGCは1時間の飛行でも数百KB
+      // 動画などを選ぶと読み込みが固まる。IGCは1時間の飛行でも数百KB
       if (file.size > 20 * 1024 * 1024) {
         showError('ファイルが大きすぎます（' + Math.round(file.size / 1024 / 1024) + 'MB）。'
           + 'IGCファイルではないようです。動画や写真を選んでいないかご確認ください。');
         return;
       }
-      reader.readAsText(file, 'utf-8');
+      try {
+        loaded = buildFlight(parseIgc(await readIgcText(file)));
+        const rows = loaded.pibalRows.length;
+        overlay.querySelector('#igc-summary').innerHTML =
+          `${loaded.dateText}　${jstLabel(loaded.takeoff.seconds).slice(0, 5)}〜`
+          + `${jstLabel(loaded.landing.seconds).slice(0, 5)} JST　`
+          + `高度 ${Math.round(loaded.mslRange[0])}〜${Math.round(loaded.mslRange[1])} m<br>`
+          + `実測の風: <strong>${rows}層</strong>（n が10未満の高度帯は除いています）`;
+        overlay.querySelector('#igc-modes').style.display = '';
+        overlay.querySelector('#igc-err').style.display = 'none';
+      } catch (e) {
+        showError(e.message);
+      }
     });
 
     for (const button of overlay.querySelectorAll('#igc-modes button')) {
