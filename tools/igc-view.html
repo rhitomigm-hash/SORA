@@ -1,0 +1,1252 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IGC ビューア(飛行ログ)</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1: #fcfcfb;
+    --plane: #f9f9f7;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --muted: #898781;
+    --grid: #e1e0d9;
+    --axis: #c3c2b7;
+    --border: rgba(11,11,11,0.10);
+    --accent: #2a78d6;
+    --warn-bg: #fdf6e3;
+    --warn-br: #e8d9a8;
+    --warn-tx: #6b5a1f;
+    --track-lo: #2c3e8f;
+    --track-mid: #1f9c8a;
+    --track-hi: #e0b93a;
+    --goal: #c8452e;
+    --marker: #7a3fb8;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-1: #1a1a19; --plane: #0d0d0d;
+      --text-primary: #ffffff; --text-secondary: #c3c2b7;
+      --muted: #8f8e86;
+      --grid: #2c2c2a; --axis: #383835;
+      --border: rgba(255,255,255,0.10);
+      --accent: #3987e5;
+      --warn-bg: #2a2413; --warn-br: #4d431f; --warn-tx: #e3d094;
+      --track-lo: #6f8ae8; --track-mid: #45c9b4; --track-hi: #f2d365;
+      --goal: #ef7a63; --marker: #b98ae8;
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-1: #1a1a19; --plane: #0d0d0d;
+    --text-primary: #ffffff; --text-secondary: #c3c2b7;
+    --muted: #8f8e86;
+    --grid: #2c2c2a; --axis: #383835;
+    --border: rgba(255,255,255,0.10);
+    --accent: #3987e5;
+    --warn-bg: #2a2413; --warn-br: #4d431f; --warn-tx: #e3d094;
+    --track-lo: #6f8ae8; --track-mid: #45c9b4; --track-hi: #f2d365;
+    --goal: #ef7a63; --marker: #b98ae8;
+  }
+
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--plane); color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 14px; line-height: 1.6;
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  h2 { font-size: 15px; margin: 0 0 10px; }
+  .sub { color: var(--text-secondary); font-size: 13px; margin: 0 0 16px; }
+  .note { color: var(--muted); font-size: 12px; margin: 8px 0 0; }
+  .note strong { color: var(--text-secondary); }
+
+  .privacy {
+    background: var(--warn-bg); border: 1px solid var(--warn-br); color: var(--warn-tx);
+    border-radius: 8px; padding: 10px 14px; margin: 0 0 20px; font-size: 13px;
+  }
+  .privacy p { margin: 0; }
+  .privacy p + p { margin-top: 4px; }
+
+  .controls {
+    display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
+    padding: 12px 16px; margin-bottom: 20px;
+    background: var(--surface-1); border: 1px solid var(--border); border-radius: 8px;
+  }
+  label { color: var(--text-secondary); font-size: 13px; }
+  input[type=file] { font: inherit; font-size: 13px; color: var(--text-secondary); }
+  input[type=number], select, button {
+    font: inherit; font-size: 13px; padding: 5px 10px;
+    background: var(--surface-1); color: var(--text-primary);
+    border: 1px solid var(--axis); border-radius: 6px;
+  }
+  button { cursor: pointer; }
+  button:disabled { opacity: .45; cursor: default; }
+  button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  input[type=number] { width: 76px; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 16px; margin-bottom: 20px;
+  }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 20px; }
+  .cards .card { margin-bottom: 0; }
+  .scroll { overflow-x: auto; max-width: 100%; }
+  canvas { display: block; max-width: 100%; }
+
+  dl.kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 16px; margin: 0; }
+  dl.kv dt { color: var(--muted); font-size: 12px; }
+  dl.kv dd { margin: 0; font-variant-numeric: tabular-nums; }
+
+  table { border-collapse: collapse; font-variant-numeric: tabular-nums; width: 100%; }
+  th, td { padding: 4px 10px; text-align: right; white-space: nowrap; }
+  th { font-weight: 500; color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--border); }
+  td { border-bottom: 1px solid var(--border); }
+  th:first-child, td:first-child { text-align: left; }
+  tr.thin td { color: var(--muted); }
+
+  .legend { display: flex; gap: 14px; flex-wrap: wrap; align-items: center; font-size: 12px; color: var(--text-secondary); margin-top: 8px; }
+  .swatch { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: -1px; margin-right: 4px; }
+  .ramp { width: 120px; height: 10px; border-radius: 2px; display: inline-block; vertical-align: -1px;
+          background: linear-gradient(90deg, var(--track-lo), var(--track-mid), var(--track-hi)); }
+  .hidden { display: none; }
+  #err { color: #c8452e; }
+</style>
+</head>
+<body>
+
+<h1>IGC ビューア(飛行ログ)</h1>
+<p class="sub">熱気球の飛行ログを読み込んで、軌跡・高度・高度別の風を表示します。ダブルクリックで開けます。</p>
+
+<div class="privacy">
+  <p><strong>このツールはファイルを外部に送信しません。</strong>すべてブラウザの中だけで処理します。</p>
+  <p>飛行ログは第三者の個人データです。<strong>IGCファイルそのものを外部（無料版AI・別のチャット）へ渡さないでください。</strong>外部に相談したいときは、下の「集約CSVを書き出す」で作ったCSVを渡してください。</p>
+</div>
+
+<div class="controls">
+  <label for="file">IGCファイル</label>
+  <!-- accept は付けない。iOSは拡張子ではなくUTIで判定し、.igc は未登録のため
+       accept を書くとファイルが灰色になって選べなくなる(2026-08-28にiPhoneで確認) -->
+  <input type="file" id="file">
+  <label for="band">高度帯の刻み</label>
+  <input type="number" id="band" value="150" min="25" step="25"> m
+  <label for="dt">差分の間隔</label>
+  <input type="number" id="dt" value="60" min="10" step="10"> 秒
+  <button id="csv" class="primary" disabled>集約CSVを書き出す</button>
+</div>
+
+<div class="controls">
+  <label for="wprfile">ウィンドプロファイラCSV（任意）</label>
+  <input type="file" id="wprfile" accept=".csv,text/csv">
+  <label for="station">突き合わせる局</label>
+  <select id="station" disabled></select>
+  <button id="wprcsv" disabled>突き合わせCSVを書き出す</button>
+</div>
+
+<div class="controls">
+  <label for="sorabase">SORAの場所</label>
+  <input type="text" id="sorabase" value="http://localhost:8001/prototype/" style="width:260px">
+  <button id="sora" disabled>この風でSORAを飛ばす</button>
+  <label><input type="checkbox" id="soradev" checked> 開発途中版(?dev=1)で開く</label>
+</div>
+
+<div id="soraout" class="card hidden">
+  <h2>SORAに渡す風（実測）</h2>
+  <div class="scroll"><table id="soratable"></table></div>
+  <p><a id="soralink" href="#" target="_blank" rel="noopener">このリンクでSORAを開く</a>
+     <button id="soracopy" style="margin-left:10px">URLをコピー</button></p>
+  <p class="note">
+    <strong>⚠ このURLには離陸地点の緯度経度が入っています。外に出さないでください。</strong>
+    共有すると飛行場所が分かります（CSVと違い、これは個人データを含みます）。
+  </p>
+  <p class="note">
+    <strong>これは「その飛行で気球が実際に受けた風の高度分布」であって、その日その場の風の場ではありません。</strong>
+    高度帯ごとに<strong>その高度にいた時刻が違う</strong>ため（例: 地上付近は離陸直後、上空は30分後）、
+    高度変化と時間変化が混ざっています。SORAは風を時間変化させないので、
+    <strong>同じ高度をなぞれば軌跡は近づきますが、一致はしません</strong>。<br>
+    n が10未満の高度帯は除いています。<strong>3kt未満の帯は風向が定まりませんが、
+    弱風であること自体は事実なので残しています</strong>（除くと隣の帯から補間されて、かえって嘘になります）。
+  </p>
+</div>
+
+<p id="err" class="hidden"></p>
+
+<div id="out" class="hidden">
+
+  <div class="card">
+    <h2>概要</h2>
+    <dl class="kv" id="summary"></dl>
+    <p class="note">パイロット名・機体番号は<strong>意図的に表示していません</strong>（個人データのため）。座標も画面には出さず、離陸地点からの相対距離だけを使っています。</p>
+  </div>
+
+  <div class="cards">
+    <div class="card">
+      <h2>平面図（上から）</h2>
+      <div class="scroll"><canvas id="plan" width="640" height="640"></canvas></div>
+      <div class="legend">
+        <span><span class="ramp"></span> 低い ← 高度 → 高い</span>
+        <span><span class="swatch" style="background:var(--goal)"></span>宣言目標</span>
+        <span><span class="swatch" style="background:var(--marker)"></span>マーカー投下</span>
+      </div>
+      <p class="note">軸は<strong>離陸地点からの距離(m)</strong>。上が北。</p>
+    </div>
+
+    <div class="card">
+      <h2>高度プロファイル</h2>
+      <div class="scroll"><canvas id="prof" width="640" height="360"></canvas></div>
+      <div class="legend">
+        <span><span class="swatch" style="background:var(--goal)"></span>宣言</span>
+        <span><span class="swatch" style="background:var(--marker)"></span>マーカー投下</span>
+        <span><span class="swatch" style="background:var(--accent)"></span>離陸(STA)</span>
+      </div>
+      <p class="note">縦軸は海抜相当(m)。横軸はJST。</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <h2>高度別の風</h2>
+    <div class="scroll"><table id="wind"></table></div>
+    <p class="note">
+      風向は<strong>吹いてくる向き</strong>（気象の慣習。気球が流される向きの+180°）。
+      地上（対地30m未満）と、上昇下降中（差分間隔あたり60m以上の高度変化）の区間は除いています。
+      <strong>「600mの風」は「600mにいた時刻の風」でしかありません</strong> — 高度と時刻が絡んでおり、分離できません。
+      1地点の記録であり、広い範囲を代表しません。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>宣言目標とマーカー投下</h2>
+    <div class="scroll"><table id="goals"></table></div>
+    <p class="note">
+      目標のUTM北成分は下4桁しか宣言されないため、<strong>離陸地点の100km区画から復元</strong>しています。
+      同じ目標番号が複数あるときは<strong>時刻が新しいほうが有効</strong>です（撤回・再宣言）。
+      <strong>⚠ マーカー番号と目標番号は対応しません</strong>（2026-08-24に実データで確認。
+      M1は「目標1から724m」ではなく「目標2から72m」でした）。
+      どの目標を狙った投下かはIGCから分からないので、<strong>すべての目標との距離を並べています</strong>。
+      距離は事実として並べているだけで、<strong>得点や成否の判定はしません</strong>。
+    </p>
+  </div>
+
+  <div class="card hidden" id="wprcard">
+    <h2>ウィンドプロファイラとの突き合わせ</h2>
+    <div class="scroll"><table id="wprtable"></table></div>
+    <p class="note">
+      同じ日で、飛行時間の前後1時間以内にある観測だけを並べています。
+      <strong>速さの「比」は出していません</strong> — 風が弱いと分母が0に近づいて暴れるためです
+      （このリポジトリで二度踏んだ轍）。両方の風速を並べてあるので、そちらで判断してください。
+      <strong>風速が3kt未満の行の風向差は、検算にも分析にも使えません。</strong>
+      気球は面（数km四方を移動）、プロファイラは点（1地点の上空）を見ており、
+      <strong>そもそも同じものを測っていません</strong>。
+    </p>
+    <p class="note">
+      <strong>書き出すCSVに局名は入りません</strong>（「地点A」になります）。
+      局名を出すと、飛行地点がその局から数十km以内に絞られるためです。
+      外部に渡すときは「飛行地点から約30km離れた地点の高層風観測（気象庁ウィンドプロファイラ）」
+      とだけ書いてください。
+    </p>
+  </div>
+
+  <div class="card">
+    <h2>読み取ったファイルの定義</h2>
+    <div class="scroll"><table id="defs"></table></div>
+    <p class="note">Bレコードの切り出し位置は<strong>Iレコードから読んでいます</strong>（決め打ちしていません）。別のロガーのファイルでも、ここが正しく出ていれば解析できています。</p>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+
+// ───────────────────────────── 定数
+const KNOT_PER_MS   = 1.94384;
+const GROUND_AGL_M  = 30;    // これ未満は地上とみなす
+const CLIMB_LIMIT_M = 60;    // 差分間隔あたりこれ以上動いたら上昇下降中
+const FEET_PER_M    = 3.28084;
+
+// ───────────────────────────── IGC 解析
+//
+// Bレコードは固定長。バイト位置を1つずらすと全部ずれるので、
+// 拡張(FXA/SIU/LAD/LOD/PAD/VAR)の位置は必ず I レコードから読む。
+//
+function parseIgc(text) {
+  const lines = text.split(/\r?\n/);
+  const headers = {};
+  let flightDate = null;      // {year, month, day} UTC
+  let loggerId = null;
+  let bExtensions = [];
+  const eventDefs = {};        // "XX0" → 拡張定義の配列
+  const fixes = [];
+  const events = [];
+
+  // --- ヘッダと定義を先に読む（Bレコードより前にあるとは限らないので2周する）
+  for (const raw of lines) {
+    const line = raw.trim();
+    if (!line) continue;
+    const kind = line[0].toUpperCase();
+
+    if (kind === "A") {
+      loggerId = line.slice(1);
+
+    } else if (kind === "H") {
+      if (/^HFDTE/i.test(line)) {
+        // HFDTE220826 または HFDTEDATE:220826,01
+        const digits = line.replace(/^HFDTE(DATE:)?/i, "").replace(/[^0-9]/g, "");
+        if (digits.length >= 6) {
+          const dd = +digits.slice(0, 2), mm = +digits.slice(2, 4), yy = +digits.slice(4, 6);
+          flightDate = { year: 2000 + yy, month: mm, day: dd };
+        }
+      } else if (/^HFXII:/i.test(line)) {
+        // HFXII:XX0:054143FXA4445SIU4646LAD4747LOD4848PAD
+        const m = line.match(/^HFXII:([A-Z0-9]{3}):(\d{2})(.*)$/i);
+        if (m) eventDefs[m[1].toUpperCase()] = parseExtensionList(+m[2], m[3]);
+      } else {
+        const m = line.match(/^H[FOP]([A-Z0-9]{3})(.*)$/i);
+        if (m) headers[m[1].toUpperCase()] = m[2];
+      }
+
+    } else if (kind === "I") {
+      bExtensions = parseExtensionList(+line.slice(1, 3), line.slice(3));
+    }
+  }
+
+  // --- 本体
+  for (const raw of lines) {
+    const line = raw.replace(/[\r\n]+$/, "");
+    if (!line) continue;
+    const kind = line[0].toUpperCase();
+
+    if (kind === "B") {
+      const fix = parseFix(line, bExtensions);
+      if (fix) fixes.push(fix);
+
+    } else if (kind === "E") {
+      // E HHMMSS CCC ...
+      if (line.length < 10) continue;
+      const seconds = parseTime(line.slice(1, 7));
+      const code = line.slice(7, 10).toUpperCase();
+      const body = line.slice(10);
+      events.push({ seconds, code, body, defs: eventDefs[code] || null });
+    }
+  }
+
+  return { headers, flightDate, loggerId, bExtensions, eventDefs, fixes, events };
+}
+
+// "3638FXA3940SIU..." → [{from,to,code}]（fromは1始まりのバイト位置）
+function parseExtensionList(count, rest) {
+  const list = [];
+  for (let i = 0; i < count; i++) {
+    const chunk = rest.slice(i * 7, i * 7 + 7);
+    if (chunk.length < 7) break;
+    list.push({ from: +chunk.slice(0, 2), to: +chunk.slice(2, 4), code: chunk.slice(4, 7).toUpperCase() });
+  }
+  return list;
+}
+
+function parseTime(hhmmss) {
+  return (+hhmmss.slice(0, 2)) * 3600 + (+hhmmss.slice(2, 4)) * 60 + (+hhmmss.slice(4, 6));
+}
+
+// 緯度経度は「度＋分」。DD + MM.mmm/60 で度に直す。DD.MMmmm と読むと全然違う場所になる。
+function parseLatitude(s) {
+  const deg = +s.slice(0, 2), min = +s.slice(2, 7) / 1000;
+  const value = deg + min / 60;
+  return s[7].toUpperCase() === "S" ? -value : value;
+}
+function parseLongitude(s) {
+  const deg = +s.slice(0, 3), min = +s.slice(3, 8) / 1000;
+  const value = deg + min / 60;
+  return s[8].toUpperCase() === "W" ? -value : value;
+}
+
+// 位置ブロックは 緯度8 + 経度9 + 測位1 + 気圧高度5 + GPS高度5 = 28文字。
+// Bレコードでは "B" + 時刻6 のあと（0始まりで7文字目）から始まる。
+const FIX_BLOCK_LENGTH = 28;
+
+function parseFix(line, extensions) {
+  const posStart = 7;
+  if (line.length < posStart + FIX_BLOCK_LENGTH) return null;
+  const seconds = parseTime(line.slice(1, 7));
+  return readFixBlock(line, posStart, seconds, extensions);
+}
+
+function readFixBlock(line, start, seconds, extensions) {
+  const lat = line.slice(start, start + 8);
+  const lon = line.slice(start + 8, start + 17);
+  const valid = line[start + 17];
+  const pressureRaw = line.slice(start + 18, start + 23);
+  const gpsRaw = line.slice(start + 23, start + 28);
+  if (!/^\d{7}[NS]$/i.test(lat) || !/^\d{8}[EW]$/i.test(lon)) return null;
+
+  const fix = {
+    seconds,
+    lat: parseLatitude(lat),
+    lon: parseLongitude(lon),
+    valid: (valid || "").toUpperCase(),
+    pressureAlt: parseInt(pressureRaw, 10),
+    gpsAlt: parseInt(gpsRaw, 10)
+  };
+  if (!isFinite(fix.pressureAlt)) fix.pressureAlt = null;
+  if (!isFinite(fix.gpsAlt)) fix.gpsAlt = null;
+
+  // 拡張（1始まりのバイト位置で定義されている）
+  for (const ext of extensions || []) {
+    const value = line.slice(ext.from - 1, ext.to);
+    if (!value) continue;
+    if (ext.code === "LAD") fix.lat += (fix.lat < 0 ? -1 : 1) * (+value) / Math.pow(10, value.length) / 1000 / 60;
+    else if (ext.code === "LOD") fix.lon += (fix.lon < 0 ? -1 : 1) * (+value) / Math.pow(10, value.length) / 1000 / 60;
+    else if (ext.code === "FXA") fix.accuracy = +value;
+    else if (ext.code === "SIU") fix.satellites = +value;
+  }
+  return fix;
+}
+
+// E系レコード（XX0 マーカー投下 / XL1 宣言した位置）の位置ブロックを読む。
+// body = 番号2文字 + 位置ブロック28文字 + 拡張 + 残り
+function parseEventFix(event) {
+  const body = event.body;
+  if (body.length < 2 + FIX_BLOCK_LENGTH) return null;
+  const number = body.slice(0, 2);
+  // 拡張のバイト位置は元の行を基準に定義されているので、行の形のまま渡す
+  const fix = readFixBlock(event.code + body, 3 + 2, event.seconds, null);
+  if (!fix) return null;
+  return { number, fix, tail: body.slice(2 + FIX_BLOCK_LENGTH) };
+}
+
+// ───────────────────────────── UTM（WGS84 順変換）
+// 変数名は短くしない（$a と $A の衝突で静かに壊れた前例がある）
+function toUtm(latitudeDeg, longitudeDeg) {
+  const semiMajorAxis = 6378137.0;
+  const flattening = 1 / 298.257223563;
+  const eccentricitySq = flattening * (2 - flattening);
+  const eccentricityPrimeSq = eccentricitySq / (1 - eccentricitySq);
+  const scaleFactor = 0.9996;
+
+  const zone = Math.floor((longitudeDeg + 180) / 6) + 1;
+  const centralMeridian = (zone - 1) * 6 - 180 + 3;
+
+  const latitudeRad = latitudeDeg * Math.PI / 180;
+  const deltaLonRad = (longitudeDeg - centralMeridian) * Math.PI / 180;
+
+  const sinLat = Math.sin(latitudeRad), cosLat = Math.cos(latitudeRad), tanLat = Math.tan(latitudeRad);
+  const radiusOfCurvature = semiMajorAxis / Math.sqrt(1 - eccentricitySq * sinLat * sinLat);
+  const tanSq = tanLat * tanLat;
+  const etaSq = eccentricityPrimeSq * cosLat * cosLat;
+  const angle = deltaLonRad * cosLat;
+
+  const meridionalArc = semiMajorAxis * (
+      (1 - eccentricitySq / 4 - 3 * eccentricitySq ** 2 / 64 - 5 * eccentricitySq ** 3 / 256) * latitudeRad
+    - (3 * eccentricitySq / 8 + 3 * eccentricitySq ** 2 / 32 + 45 * eccentricitySq ** 3 / 1024) * Math.sin(2 * latitudeRad)
+    + (15 * eccentricitySq ** 2 / 256 + 45 * eccentricitySq ** 3 / 1024) * Math.sin(4 * latitudeRad)
+    - (35 * eccentricitySq ** 3 / 3072) * Math.sin(6 * latitudeRad)
+  );
+
+  const easting = scaleFactor * radiusOfCurvature * (
+      angle
+    + angle ** 3 / 6 * (1 - tanSq + etaSq)
+    + angle ** 5 / 120 * (5 - 18 * tanSq + tanSq ** 2 + 72 * etaSq - 58 * eccentricityPrimeSq)
+  ) + 500000;
+
+  let northing = scaleFactor * (meridionalArc + radiusOfCurvature * tanLat * (
+      angle ** 2 / 2
+    + angle ** 4 / 24 * (5 - tanSq + 9 * etaSq + 4 * etaSq ** 2)
+    + angle ** 6 / 720 * (61 - 58 * tanSq + tanSq ** 2 + 600 * etaSq - 330 * eccentricityPrimeSq)
+  ));
+  if (latitudeDeg < 0) northing += 10000000;
+
+  return { zone, easting, northing };
+}
+
+// ───────────────────────────── 幾何
+function metersPerDegree(latitudeDeg) {
+  const latitudeRad = latitudeDeg * Math.PI / 180;
+  return {
+    north: 111132.92 - 559.82 * Math.cos(2 * latitudeRad) + 1.175 * Math.cos(4 * latitudeRad),
+    east: 111412.84 * Math.cos(latitudeRad) - 93.5 * Math.cos(3 * latitudeRad)
+  };
+}
+function bearingText(degrees) {
+  const names = ["北", "北北東", "北東", "東北東", "東", "東南東", "南東", "南南東",
+                 "南", "南南西", "南西", "西南西", "西", "西北西", "北西", "北北西"];
+  return names[Math.round(((degrees % 360) + 360) % 360 / 22.5) % 16];
+}
+
+// ───────────────────────────── 時刻
+function jstLabel(seconds) {
+  const t = ((seconds + 9 * 3600) % 86400 + 86400) % 86400;
+  const hh = String(Math.floor(t / 3600)).padStart(2, "0");
+  const mm = String(Math.floor(t % 3600 / 60)).padStart(2, "0");
+  const ss = String(Math.floor(t % 60)).padStart(2, "0");
+  return `${hh}:${mm}:${ss}`;
+}
+function jstHm(seconds) { return jstLabel(seconds).slice(0, 5); }
+function durationText(seconds) {
+  const h = Math.floor(seconds / 3600), m = Math.round(seconds % 3600 / 60);
+  return h > 0 ? `${h}時間${m}分` : `${m}分`;
+}
+// UTCの日付+秒 から JSTの日付を出す（日付をまたぐため）
+function jstDateText(date, seconds) {
+  if (!date) return "—";
+  const utc = Date.UTC(date.year, date.month - 1, date.day, 0, 0, seconds);
+  const jst = new Date(utc + 9 * 3600 * 1000);
+  return `${jst.getUTCFullYear()}-${String(jst.getUTCMonth() + 1).padStart(2, "0")}-${String(jst.getUTCDate()).padStart(2, "0")}`;
+}
+
+// ───────────────────────────── 解析（風）
+function analyse(igc, options) {
+  const fixes = igc.fixes.filter(f => f.lat && f.lon && f.pressureAlt !== null);
+  // 文言は「書式を知らない人が写真を選んでしまった場合」に合わせてある。
+  // accept を外した（iOSで灰色になるため）ので、非IGCを選べてしまう
+  if (fixes.length < 2) {
+    throw new Error("IGCファイルではないようです（位置の記録が入っていません）。"
+      + "写真や別の書類を選んでいないかご確認ください。");
+  }
+
+  const takeoffEvent = igc.events.find(e => e.code === "STA");
+
+  // 地上の基準: 気圧高度の最低付近を0mとする対地高度で判定する。
+  // 気圧高度は1013hPa基準（当日の気圧に合わせていない）ので、生の値に30mの閾値を当てない。
+  const sortedPressure = fixes.map(f => f.pressureAlt).slice().sort((a, b) => a - b);
+  const groundPressureAlt = sortedPressure[Math.floor(sortedPressure.length * 0.02)];
+
+  // 海抜相当への補正: 層に分けるのは気圧高度（滑らか）、絶対値はGPS高度（海抜）に合わせる
+  const groundFixes = fixes.filter(f => f.pressureAlt - groundPressureAlt < GROUND_AGL_M && f.gpsAlt !== null);
+  const offsets = groundFixes.map(f => f.gpsAlt - f.pressureAlt).sort((a, b) => a - b);
+  const altitudeOffset = offsets.length ? offsets[Math.floor(offsets.length / 2)] : 0;
+  const mslOf = f => f.pressureAlt + altitudeOffset;
+
+  const airborne = fixes.filter(f => f.pressureAlt - groundPressureAlt >= GROUND_AGL_M);
+  const takeoffFix = airborne.length ? airborne[0] : fixes[0];
+  const landingFix = airborne.length ? airborne[airborne.length - 1] : fixes[fixes.length - 1];
+
+  // 離陸地点を原点にした平面座標(m)
+  const perDegree = metersPerDegree(takeoffFix.lat);
+  const origin = { lat: takeoffFix.lat, lon: takeoffFix.lon };
+  const toLocal = f => ({
+    x: (f.lon - origin.lon) * perDegree.east,
+    y: (f.lat - origin.lat) * perDegree.north
+  });
+
+  const track = fixes.map(f => Object.assign({}, toLocal(f), {
+    seconds: f.seconds, msl: mslOf(f), agl: f.pressureAlt - groundPressureAlt
+  }));
+
+  // --- 風: 差分間隔で速度を出す（1秒差分はGPSノイズに埋もれる）
+  const step = options.stepSeconds;
+  const bandSize = options.bandSize;
+  const bySeconds = new Map();
+  for (const f of fixes) bySeconds.set(f.seconds, f);
+
+  const bands = new Map();
+  let usedSegments = 0, skippedGround = 0, skippedClimb = 0;
+
+  for (const f of fixes) {
+    const later = bySeconds.get(f.seconds + step);
+    if (!later) continue;
+
+    if (f.pressureAlt - groundPressureAlt < GROUND_AGL_M || later.pressureAlt - groundPressureAlt < GROUND_AGL_M) {
+      skippedGround++; continue;
+    }
+    if (Math.abs(later.pressureAlt - f.pressureAlt) >= CLIMB_LIMIT_M) {
+      skippedClimb++; continue;
+    }
+
+    const a = toLocal(f), b = toLocal(later);
+    // 気球は風の完全なトレーサー。水平移動速度がそのまま、その高度の風。
+    const eastward = (b.x - a.x) / step;
+    const northward = (b.y - a.y) / step;
+    const midMsl = (mslOf(f) + mslOf(later)) / 2;
+    const key = Math.floor(midMsl / bandSize) * bandSize;
+
+    if (!bands.has(key)) bands.set(key, { key, n: 0, eastSum: 0, northSum: 0, firstSec: f.seconds, lastSec: later.seconds });
+    const band = bands.get(key);
+    band.n++; band.eastSum += eastward; band.northSum += northward;
+    band.firstSec = Math.min(band.firstSec, f.seconds);
+    band.lastSec = Math.max(band.lastSec, later.seconds);
+    usedSegments++;
+  }
+
+  const windBands = [...bands.values()].sort((a, b) => a.key - b.key).map(band => {
+    // 風向は東西・南北成分で平均してから角度に直す（角度のまま平均すると0°/360°で壊れる）
+    const eastMean = band.eastSum / band.n;
+    const northMean = band.northSum / band.n;
+    const speedMs = Math.hypot(eastMean, northMean);
+    const drift = (Math.atan2(eastMean, northMean) * 180 / Math.PI + 360) % 360;
+    const from = (drift + 180) % 360;   // 吹いてくる向き
+    return {
+      key: band.key, n: band.n,
+      fromDeg: from, speedKt: speedMs * KNOT_PER_MS,
+      firstSec: band.firstSec, lastSec: band.lastSec
+    };
+  });
+
+  // --- 宣言とマーカー
+  const takeoffUtm = toUtm(takeoffFix.lat, takeoffFix.lon);
+  const northBlock = Math.floor(takeoffUtm.northing / 100000) * 100000;
+
+  const declarations = [];
+  const markers = [];
+
+  for (const event of igc.events) {
+    if (/^XX[1-9]$/.test(event.code)) {
+      // 目標番号2 + "EEEEE/NNNN,AAA"
+      const m = event.body.match(/^(\d{2})(\d{5})\/(\d{4}),?(-?\d+)?/);
+      if (!m) continue;
+      const easting = +m[2] * 10;
+      const northing = northBlock + (+m[3]) * 10;
+      const deltaEast = easting - takeoffUtm.easting;
+      const deltaNorth = northing - takeoffUtm.northing;
+      declarations.push({
+        number: +m[1], seconds: event.seconds,
+        rawEast: m[2], rawNorth: m[3],
+        altitudeFt: m[4] !== undefined ? +m[4] : null,
+        easting, northing,
+        x: deltaEast, y: deltaNorth,
+        distance: Math.hypot(deltaEast, deltaNorth),
+        bearing: (Math.atan2(deltaEast, deltaNorth) * 180 / Math.PI + 360) % 360
+      });
+    } else if (event.code === "XX0") {
+      const parsed = parseEventFix(event);
+      if (!parsed) continue;
+      const local = toLocal(parsed.fix);
+      markers.push({
+        number: +parsed.number, seconds: event.seconds,
+        x: local.x, y: local.y,
+        msl: parsed.fix.pressureAlt !== null ? parsed.fix.pressureAlt + altitudeOffset : null,
+        agl: parsed.fix.pressureAlt !== null ? parsed.fix.pressureAlt - groundPressureAlt : null,
+        utm: toUtm(parsed.fix.lat, parsed.fix.lon)
+      });
+    }
+  }
+
+  // 同じ番号の再宣言は、時刻が新しいほうが有効
+  const effective = new Map();
+  for (const d of declarations.slice().sort((a, b) => a.seconds - b.seconds)) effective.set(d.number, d);
+  for (const d of declarations) d.superseded = effective.get(d.number) !== d;
+
+  // ⚠ マーカー番号と目標番号は対応しない(2026-08-24に実データで確認)。
+  //   実例: M1 は「目標1から724m」ではなく「目標2から72m」だった。
+  //   IGCからは「どの目標を狙った投下か」は分からないので、**最寄りの目標**で見るしかない。
+  const activeGoals = [...effective.values()];
+  for (const marker of markers) {
+    marker.distances = activeGoals
+      .map((g) => ({ number: g.number, distance: Math.hypot(marker.utm.easting - g.easting, marker.utm.northing - g.northing) }))
+      .sort((a, b) => a.distance - b.distance);
+    marker.nearest = marker.distances[0] || null;
+  }
+
+  const span = { x: [0, 0], y: [0, 0] };
+  for (const p of track.concat(declarations, markers)) {
+    span.x[0] = Math.min(span.x[0], p.x); span.x[1] = Math.max(span.x[1], p.x);
+    span.y[0] = Math.min(span.y[0], p.y); span.y[1] = Math.max(span.y[1], p.y);
+  }
+
+  return {
+    igc, track, windBands, declarations, markers, span,
+    altitudeOffset, groundPressureAlt,
+    takeoff: { fix: takeoffFix, seconds: takeoffEvent ? takeoffEvent.seconds : takeoffFix.seconds, utm: takeoffUtm },
+    landing: { fix: landingFix, seconds: landingFix.seconds },
+    airborneSeconds: landingFix.seconds - takeoffFix.seconds,
+    counts: { fixes: fixes.length, airborne: airborne.length, usedSegments, skippedGround, skippedClimb },
+    mslRange: [Math.min(...track.map(p => p.msl)), Math.max(...track.map(p => p.msl))],
+    options
+  };
+}
+
+// ───────────────────────────── 描画
+function rampColor(t) {
+  const stops = [[44, 62, 143], [31, 156, 138], [224, 185, 58]];
+  const dark = matchMedia("(prefers-color-scheme: dark)").matches;
+  const stopsDark = [[111, 138, 232], [69, 201, 180], [242, 211, 101]];
+  const use = dark ? stopsDark : stops;
+  const clamped = Math.max(0, Math.min(1, t));
+  const i = clamped < 0.5 ? 0 : 1;
+  const local = clamped < 0.5 ? clamped * 2 : (clamped - 0.5) * 2;
+  const a = use[i], b = use[i + 1];
+  return `rgb(${Math.round(a[0] + (b[0] - a[0]) * local)},${Math.round(a[1] + (b[1] - a[1]) * local)},${Math.round(a[2] + (b[2] - a[2]) * local)})`;
+}
+function cssVar(name) {
+  return getComputedStyle(document.body).getPropertyValue(name).trim();
+}
+function niceStep(range, target) {
+  const rough = range / target;
+  const magnitude = Math.pow(10, Math.floor(Math.log10(rough)));
+  for (const m of [1, 2, 2.5, 5, 10]) if (rough <= magnitude * m) return magnitude * m;
+  return magnitude * 10;
+}
+
+function drawPlan(canvas, result) {
+  const dpr = window.devicePixelRatio || 1;
+  const size = 640;
+  canvas.width = size * dpr; canvas.height = size * dpr;
+  canvas.style.width = size + "px"; canvas.style.height = size + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, size, size);
+
+  const pad = 46;
+  const spanX = result.span.x[1] - result.span.x[0];
+  const spanY = result.span.y[1] - result.span.y[0];
+  const extent = Math.max(spanX, spanY, 200) * 1.12;
+  const centreX = (result.span.x[0] + result.span.x[1]) / 2;
+  const centreY = (result.span.y[0] + result.span.y[1]) / 2;
+  const inner = size - pad * 2;
+  const scale = inner / extent;   // 縦横同率（形が歪まないように）
+  const px = x => pad + inner / 2 + (x - centreX) * scale;
+  const py = y => pad + inner / 2 - (y - centreY) * scale;
+
+  // グリッド
+  const step = niceStep(extent, 6);
+  ctx.strokeStyle = cssVar("--grid"); ctx.lineWidth = 1;
+  ctx.fillStyle = cssVar("--muted"); ctx.font = "11px system-ui, sans-serif";
+  const from = Math.ceil((centreX - extent / 2) / step) * step;
+  for (let v = from; v <= centreX + extent / 2; v += step) {
+    const x = px(v);
+    ctx.beginPath(); ctx.moveTo(x, pad); ctx.lineTo(x, size - pad); ctx.stroke();
+    ctx.textAlign = "center"; ctx.fillText(String(Math.round(v)), x, size - pad + 14);
+  }
+  const fromY = Math.ceil((centreY - extent / 2) / step) * step;
+  for (let v = fromY; v <= centreY + extent / 2; v += step) {
+    const y = py(v);
+    ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(size - pad, y); ctx.stroke();
+    ctx.textAlign = "right"; ctx.fillText(String(Math.round(v)), pad - 6, y + 4);
+  }
+  ctx.strokeStyle = cssVar("--axis");
+  ctx.strokeRect(pad, pad, inner, inner);
+
+  // 軌跡（高度で色分け）
+  const [lo, hi] = result.mslRange;
+  const range = Math.max(1, hi - lo);
+  ctx.lineWidth = 2.2; ctx.lineCap = "round";
+  for (let i = 1; i < result.track.length; i++) {
+    const a = result.track[i - 1], b = result.track[i];
+    if (b.seconds - a.seconds > 30) continue;   // 記録が飛んでいるところは繋がない
+    ctx.strokeStyle = rampColor(((a.msl + b.msl) / 2 - lo) / range);
+    ctx.beginPath(); ctx.moveTo(px(a.x), py(a.y)); ctx.lineTo(px(b.x), py(b.y)); ctx.stroke();
+  }
+
+  // 宣言目標
+  ctx.strokeStyle = cssVar("--goal"); ctx.fillStyle = cssVar("--goal"); ctx.lineWidth = 1.6;
+  for (const goal of result.declarations) {
+    if (goal.superseded) continue;
+    const x = px(goal.x), y = py(goal.y);
+    ctx.beginPath(); ctx.moveTo(x - 6, y); ctx.lineTo(x + 6, y); ctx.moveTo(x, y - 6); ctx.lineTo(x, y + 6); ctx.stroke();
+    ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.stroke();
+    ctx.textAlign = "left"; ctx.font = "11px system-ui, sans-serif";
+    ctx.fillText("目標" + goal.number, x + 12, y - 8);
+  }
+
+  // マーカー投下
+  ctx.fillStyle = cssVar("--marker");
+  for (const marker of result.markers) {
+    const x = px(marker.x), y = py(marker.y);
+    ctx.beginPath(); ctx.arc(x, y, 4.5, 0, Math.PI * 2); ctx.fill();
+    ctx.textAlign = "left"; ctx.fillText("M" + marker.number, x + 7, y + 4);
+  }
+
+  // 離陸・着陸
+  const last = result.track[result.track.length - 1];
+  ctx.fillStyle = cssVar("--accent");
+  ctx.beginPath(); ctx.arc(px(0), py(0), 5, 0, Math.PI * 2); ctx.fill();
+  ctx.textAlign = "left"; ctx.fillText("離陸", px(0) + 8, py(0) + 14);
+  ctx.fillStyle = cssVar("--text-secondary");
+  ctx.beginPath(); ctx.arc(px(last.x), py(last.y), 4, 0, Math.PI * 2); ctx.fill();
+  ctx.fillText("着陸", px(last.x) + 8, py(last.y) + 14);
+
+  // 北矢印
+  ctx.strokeStyle = cssVar("--text-secondary"); ctx.fillStyle = cssVar("--text-secondary"); ctx.lineWidth = 1.4;
+  const nx = size - pad - 16, ny = pad + 12;
+  ctx.beginPath(); ctx.moveTo(nx, ny + 26); ctx.lineTo(nx, ny); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(nx, ny - 2); ctx.lineTo(nx - 4, ny + 7); ctx.lineTo(nx + 4, ny + 7); ctx.closePath(); ctx.fill();
+  ctx.textAlign = "center"; ctx.font = "11px system-ui, sans-serif";
+  ctx.fillText("N", nx, ny + 38);
+
+  // スケールバー
+  const barMeters = step;
+  const barPixels = barMeters * scale;
+  const bx = pad + 8, by = size - pad - 12;
+  ctx.strokeStyle = cssVar("--text-primary"); ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + barPixels, by);
+  ctx.moveTo(bx, by - 4); ctx.lineTo(bx, by + 4);
+  ctx.moveTo(bx + barPixels, by - 4); ctx.lineTo(bx + barPixels, by + 4); ctx.stroke();
+  ctx.fillStyle = cssVar("--text-primary"); ctx.textAlign = "left";
+  ctx.fillText(barMeters >= 1000 ? (barMeters / 1000) + " km" : barMeters + " m", bx + barPixels + 6, by + 4);
+}
+
+function drawProfile(canvas, result) {
+  const dpr = window.devicePixelRatio || 1;
+  const width = 640, height = 360;
+  canvas.width = width * dpr; canvas.height = height * dpr;
+  canvas.style.width = width + "px"; canvas.style.height = height + "px";
+  const ctx = canvas.getContext("2d");
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, width, height);
+
+  const padLeft = 52, padRight = 14, padTop = 14, padBottom = 34;
+  const t0 = result.track[0].seconds, t1 = result.track[result.track.length - 1].seconds;
+  const [lo, hi] = result.mslRange;
+  const yLo = Math.floor(lo / 100) * 100, yHi = Math.ceil(hi / 100) * 100 + 1;
+  const px = t => padLeft + (t - t0) / Math.max(1, t1 - t0) * (width - padLeft - padRight);
+  const py = a => height - padBottom - (a - yLo) / Math.max(1, yHi - yLo) * (height - padTop - padBottom);
+
+  ctx.strokeStyle = cssVar("--grid"); ctx.fillStyle = cssVar("--muted");
+  ctx.font = "11px system-ui, sans-serif"; ctx.lineWidth = 1;
+
+  const altStep = niceStep(yHi - yLo, 6);
+  for (let a = Math.ceil(yLo / altStep) * altStep; a <= yHi; a += altStep) {
+    ctx.beginPath(); ctx.moveTo(padLeft, py(a)); ctx.lineTo(width - padRight, py(a)); ctx.stroke();
+    ctx.textAlign = "right"; ctx.fillText(String(Math.round(a)), padLeft - 6, py(a) + 4);
+  }
+  const timeStep = niceStep(t1 - t0, 6) <= 300 ? 300 : Math.round(niceStep(t1 - t0, 6) / 600) * 600 || 600;
+  for (let t = Math.ceil(t0 / timeStep) * timeStep; t <= t1; t += timeStep) {
+    ctx.beginPath(); ctx.moveTo(px(t), padTop); ctx.lineTo(px(t), height - padBottom); ctx.stroke();
+    ctx.textAlign = "center"; ctx.fillText(jstHm(t), px(t), height - padBottom + 15);
+  }
+  ctx.strokeStyle = cssVar("--axis");
+  ctx.strokeRect(padLeft, padTop, width - padLeft - padRight, height - padTop - padBottom);
+
+  ctx.lineWidth = 1.8;
+  for (let i = 1; i < result.track.length; i++) {
+    const a = result.track[i - 1], b = result.track[i];
+    if (b.seconds - a.seconds > 30) continue;
+    ctx.strokeStyle = rampColor(((a.msl + b.msl) / 2 - lo) / Math.max(1, hi - lo));
+    ctx.beginPath(); ctx.moveTo(px(a.seconds), py(a.msl)); ctx.lineTo(px(b.seconds), py(b.msl)); ctx.stroke();
+  }
+
+  const tick = (seconds, color, text) => {
+    if (seconds < t0 || seconds > t1) return;
+    ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 1.2;
+    ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.moveTo(px(seconds), padTop); ctx.lineTo(px(seconds), height - padBottom); ctx.stroke();
+    ctx.setLineDash([]);
+    ctx.textAlign = "center"; ctx.fillText(text, px(seconds), padTop + 11);
+  };
+  for (const goal of result.declarations) if (!goal.superseded) tick(goal.seconds, cssVar("--goal"), "宣言" + goal.number);
+  for (const marker of result.markers) tick(marker.seconds, cssVar("--marker"), "M" + marker.number);
+  const staEvent = result.igc.events.find(e => e.code === "STA");
+  if (staEvent) tick(staEvent.seconds, cssVar("--accent"), "離陸");
+}
+
+// ───────────────────────────── 表
+function table(element, columns, rows) {
+  const head = "<thead><tr>" + columns.map(c => `<th>${c}</th>`).join("") + "</tr></thead>";
+  const body = "<tbody>" + rows.map(r => {
+    const cls = r.thin ? ' class="thin"' : "";
+    return `<tr${cls}>` + (r.cells || r).map(c => `<td>${c}</td>`).join("") + "</tr>";
+  }).join("") + "</tbody>";
+  element.innerHTML = head + body;
+}
+
+function render(result) {
+  const igc = result.igc;
+  const date = igc.flightDate;
+
+  // 概要（パイロット名・機体番号は出さない）
+  const summary = document.getElementById("summary");
+  const rows = [
+    ["日付(JST)", jstDateText(date, result.takeoff.seconds)],
+    ["離陸〜着陸(JST)", `${jstLabel(result.takeoff.seconds)} 〜 ${jstLabel(result.landing.seconds)}`],
+    ["飛行時間", durationText(result.airborneSeconds)],
+    ["高度(海抜相当)", `${Math.round(result.mslRange[0])} 〜 ${Math.round(result.mslRange[1])} m`],
+    ["記録点", `${result.counts.fixes} 点（うち空中 ${result.counts.airborne} 点）`],
+    ["ロガー", igc.headers.FTY ? igc.headers.FTY.replace(/^FRTYPE:/i, "") : (igc.loggerId || "—")],
+    ["気圧高度の基準", igc.headers.ALP ? igc.headers.ALP.replace(/^ALTPRESSURE:/i, "") : "—"],
+    ["GPS高度の基準", igc.headers.ALG ? igc.headers.ALG.replace(/^ALTGPS:/i, "") : "—"],
+    ["測地系", igc.headers.DTM ? igc.headers.DTM.replace(/^\d*GPSDATUM:/i, "") : "—"],
+    ["風の算出に使った区間", `${result.counts.usedSegments}（地上で除外 ${result.counts.skippedGround} / 上昇下降で除外 ${result.counts.skippedClimb}）`],
+    ["海抜への補正", `気圧高度 ${result.altitudeOffset >= 0 ? "+" : ""}${result.altitudeOffset} m`]
+  ];
+  summary.innerHTML = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join("");
+
+  drawPlan(document.getElementById("plan"), result);
+  drawProfile(document.getElementById("prof"), result);
+
+  // 風
+  const bandSize = result.options.bandSize;
+  table(document.getElementById("wind"),
+    ["高度帯(m,海抜相当)", "n", "風向(吹いてくる)", "風速(kt)", "時間帯(JST)"],
+    result.windBands.map(b => ({
+      thin: b.n < 10,
+      cells: [
+        `${b.key} 〜 ${b.key + bandSize}`,
+        b.n,
+        `${Math.round(b.fromDeg)}° <span style="color:var(--muted)">${bearingText(b.fromDeg)}</span>`,
+        b.speedKt.toFixed(1),
+        `${jstHm(b.firstSec)} 〜 ${jstHm(b.lastSec)}`
+      ]
+    }))
+  );
+
+  // 宣言とマーカー
+  const goalRows = [];
+  for (const goal of result.declarations.slice().sort((a, b) => a.seconds - b.seconds)) {
+    goalRows.push({
+      thin: goal.superseded,
+      cells: [
+        `目標${goal.number}${goal.superseded ? "（再宣言により無効）" : ""}`,
+        jstLabel(goal.seconds),
+        `${goal.rawEast}/${goal.rawNorth}`,
+        goal.altitudeFt !== null ? `${goal.altitudeFt} ft（${Math.round(goal.altitudeFt / FEET_PER_M)} m）` : "—",
+        `${Math.round(goal.distance)} m`,
+        `${Math.round(goal.bearing)}° ${bearingText(goal.bearing)}`,
+        "—"
+      ]
+    });
+  }
+  for (const marker of result.markers.slice().sort((a, b) => a.seconds - b.seconds)) {
+    goalRows.push({
+      cells: [
+        `マーカー${marker.number}`,
+        jstLabel(marker.seconds),
+        "—",
+        marker.agl !== null ? `対地 ${Math.round(marker.agl)} m` : "—",
+        "—", "—",
+        marker.distances.length
+          ? marker.distances.map(d => `目標${d.number} ${Math.round(d.distance)}m`).join(" / ")
+          : "宣言なし"
+      ]
+    });
+  }
+  table(document.getElementById("goals"),
+    ["", "時刻(JST)", "宣言座標(UTM下位桁)", "宣言高度 / 投下高度", "離陸地点からの距離", "方位", "各目標との距離"],
+    goalRows);
+
+  // 定義
+  const defRows = igc.bExtensions.map(e => [`Bレコード ${e.code}`, `${e.from}〜${e.to} バイト`]);
+  for (const [code, list] of Object.entries(igc.eventDefs)) {
+    for (const e of list) defRows.push([`${code} ${e.code}`, `${e.from}〜${e.to} バイト`]);
+  }
+  table(document.getElementById("defs"), ["項目", "位置"], defRows);
+}
+
+// ───────────────────────────── CSV書き出し
+// 中身は高度帯ごとの集約値だけ。座標・軌跡・パイロット名・離着陸地点は含めない。
+function buildCsv(result, flightId) {
+  const bandSize = result.options.bandSize;
+  const date = jstDateText(result.igc.flightDate, result.takeoff.seconds);
+  const header = "飛行ID,日付,高度帯m,n,風向,風速kt,時間帯開始JST,時間帯終了JST";
+  const lines = result.windBands.map(b => [
+    flightId, date, b.key, b.n,
+    Math.round(b.fromDeg), b.speedKt.toFixed(1),
+    jstHm(b.firstSec), jstHm(b.lastSec)
+  ].join(","));
+  return "﻿" + [header].concat(lines).join("\r\n") + "\r\n";
+}
+
+// ───────────────────────────── ウィンドプロファイラCSVとの突き合わせ
+//
+// data/wpr-compare.csv（気象庁の実測とOpen-Meteoの比較記録）を読み、
+// 同じ日・飛行時間の前後1時間の観測を、気球の高度帯に合わせて並べる。
+//
+function parseWprCsv(text) {
+  const lines = text.replace(/^﻿/, "").trim().split(/\r?\n/);
+  const header = lines[0].split(",");
+  const index = name => header.indexOf(name);
+  const need = ["局", "日時JST", "高度m", "実測風向", "実測kt"];
+  for (const name of need) if (index(name) < 0) throw new Error(`列「${name}」がありません。wpr-compare.csv を選んでください。`);
+
+  const records = [];
+  for (const line of lines.slice(1)) {
+    const cells = line.split(",");
+    const stamp = cells[index("日時JST")];
+    const m = (stamp || "").match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+    if (!m) continue;
+    const altitude = parseFloat(cells[index("高度m")]);
+    const direction = parseFloat(cells[index("実測風向")]);
+    const speed = parseFloat(cells[index("実測kt")]);
+    if (!isFinite(altitude) || !isFinite(direction) || !isFinite(speed)) continue;
+    records.push({
+      station: cells[index("局")],
+      stamp,
+      timeText: `${m[4]}:${m[5]}`,
+      jstMs: Date.UTC(+m[1], +m[2] - 1, +m[3], +m[4], +m[5]),
+      altitude, direction, speed
+    });
+  }
+  return records;
+}
+
+// 飛行のJST時刻をミリ秒で返す（プロファイラCSVと同じ土俵に乗せる）
+function flightJstMs(result, seconds) {
+  const date = result.igc.flightDate;
+  if (!date) return null;
+  return Date.UTC(date.year, date.month - 1, date.day, 0, 0, seconds) + 9 * 3600 * 1000;
+}
+
+function matchWpr(result, records, station) {
+  const startMs = flightJstMs(result, result.takeoff.seconds);
+  const endMs = flightJstMs(result, result.landing.seconds);
+  if (startMs === null) return [];
+  const margin = 3600 * 1000;
+  const bandSize = result.options.bandSize;
+
+  const rows = [];
+  for (const record of records) {
+    if (record.station !== station) continue;
+    if (record.jstMs < startMs - margin || record.jstMs > endMs + margin) continue;
+    const key = Math.floor(record.altitude / bandSize) * bandSize;
+    const band = result.windBands.find(b => b.key === key);
+    // 風向差は差なので弱風でも発散しない。速さの「比」は作らない（分母が0に近いと暴れる）
+    const difference = band ? ((record.direction - band.fromDeg + 540) % 360) - 180 : null;
+    rows.push({ record, key, band, difference });
+  }
+  return rows.sort((a, b) => a.record.jstMs - b.record.jstMs || a.key - b.key);
+}
+
+function renderWpr(result, rows) {
+  const bandSize = result.options.bandSize;
+  table(document.getElementById("wprtable"),
+    ["観測時刻(JST)", "観測高度(m)", "高度帯(m)", "気球 n", "気球 風向", "気球 風速(kt)", "観測 風向", "観測 風速(kt)", "風向差"],
+    rows.map(row => ({
+      thin: !row.band || row.band.speedKt < 3 || row.record.speed < 3,
+      cells: [
+        row.record.timeText,
+        Math.round(row.record.altitude),
+        `${row.key} 〜 ${row.key + bandSize}`,
+        row.band ? row.band.n : "—",
+        row.band ? `${Math.round(row.band.fromDeg)}°` : "気球はこの帯にいない",
+        row.band ? row.band.speedKt.toFixed(1) : "—",
+        `${Math.round(row.record.direction)}°`,
+        row.record.speed.toFixed(1),
+        row.difference === null ? "—" : `${row.difference > 0 ? "+" : ""}${Math.round(row.difference)}°`
+      ]
+    }))
+  );
+}
+
+// 局名も座標も入れない。局は「地点A」にする。
+function buildWprCsv(result, rows, flightId) {
+  const date = jstDateText(result.igc.flightDate, result.takeoff.seconds);
+  const header = "飛行ID,日付,高度帯m,気球n,気球風向,気球風速kt,気球時間帯開始JST,気球時間帯終了JST,観測地点,観測時刻JST,観測高度m,観測風向,観測風速kt,風向差";
+  const lines = rows.filter(row => row.band).map(row => [
+    flightId, date, row.key,
+    row.band.n, Math.round(row.band.fromDeg), row.band.speedKt.toFixed(1),
+    jstHm(row.band.firstSec), jstHm(row.band.lastSec),
+    "地点A", row.record.timeText, Math.round(row.record.altitude),
+    Math.round(row.record.direction), row.record.speed.toFixed(1),
+    Math.round(row.difference)
+  ].join(","));
+  return "﻿" + [header].concat(lines).join("\r\n") + "\r\n";
+}
+
+// ───────────────────────────── SORAに渡す(?a= と ?w= のURLを作る)
+//
+// SORA側は変更不要。`?w=ft,dir,kt;…` は元からある共有シードの形式で、
+// main.js の windDirKtToVec は dir を**真方位**として計算している
+// (「磁方位」というコメントは表示上のラベルだけで、偏角はどこにも適用されていない)。
+// 高度は PIBAL も「ft(MSL)」なので、こちらの海抜相当がそのまま対応する。
+//
+const MIN_N_FOR_SORA = 10;
+
+function buildSoraRows(result) {
+  const half = result.options.bandSize / 2;
+  return result.windBands
+    .filter(b => b.n >= MIN_N_FOR_SORA)
+    .map(b => ({
+      // 帯の中央を代表高度にする(帯の下端だと層全体が下にずれる)
+      ft: Math.round((b.key + half) * 3.28084),
+      dir: Math.round(b.fromDeg),
+      kt: Math.round(b.speedKt * 10) / 10,
+      band: b,
+    }))
+    .sort((a, b) => a.ft - b.ft);
+}
+
+function buildSoraUrl(result, rows) {
+  const base = document.getElementById("sorabase").value.trim() || "http://localhost:8001/prototype/";
+  const dev = document.getElementById("soradev").checked;
+  const wind = rows.map(r => `${r.ft},${r.dir},${r.kt}`).join(";");
+  const lon = result.takeoff.fix.lon.toFixed(4);
+  const lat = result.takeoff.fix.lat.toFixed(4);
+  return `${base}?a=${lon},${lat}&w=${encodeURIComponent(wind)}${dev ? "&dev=1" : ""}`;
+}
+
+function renderSora(result) {
+  const rows = buildSoraRows(result);
+  const card = document.getElementById("soraout");
+  if (!rows.length) { card.classList.add("hidden"); return; }
+
+  table(document.getElementById("soratable"),
+    ["高度(ft, 海抜)", "高度(m)", "風向(吹いてくる)", "風速(kt)", "n", "その高度にいた時間帯(JST)"],
+    rows.map(r => ({
+      thin: r.kt < 3,
+      cells: [r.ft, Math.round(r.ft / 3.28084), `${r.dir}°`, r.kt.toFixed(1), r.band.n,
+              `${jstHm(r.band.firstSec)} 〜 ${jstHm(r.band.lastSec)}`]
+    })));
+
+  const url = buildSoraUrl(result, rows);
+  const link = document.getElementById("soralink");
+  link.href = url;
+  card.classList.remove("hidden");
+}
+
+// ───────────────────────────── 画面の配線
+let currentResult = null;
+let currentText = null;
+let currentFlightId = null;
+let wprRecords = null;
+
+function readOptions() {
+  return {
+    bandSize: Math.max(25, +document.getElementById("band").value || 150),
+    stepSeconds: Math.max(10, +document.getElementById("dt").value || 60)
+  };
+}
+
+function run() {
+  const err = document.getElementById("err");
+  const out = document.getElementById("out");
+  try {
+    const igc = parseIgc(currentText);
+    currentResult = analyse(igc, readOptions());
+    render(currentResult);
+    refreshWpr();
+    err.classList.add("hidden");
+    out.classList.remove("hidden");
+    document.getElementById("csv").disabled = false;
+    document.getElementById("sora").disabled = false;
+  } catch (e) {
+    // 想定内のエラー（日本語の完結した文）はそのまま、想定外（TypeError等）だけ前置きを付ける
+    err.textContent = /。$/.test(e.message) ? e.message : "読み取れませんでした: " + e.message;
+    err.classList.remove("hidden");
+    out.classList.add("hidden");
+    document.getElementById("csv").disabled = true;
+    document.getElementById("sora").disabled = true;
+    document.getElementById("soraout").classList.add("hidden");
+  }
+}
+
+document.getElementById("sora").addEventListener("click", () => {
+  if (currentResult) renderSora(currentResult);
+});
+for (const id of ["sorabase", "soradev"]) {
+  document.getElementById(id).addEventListener("change", () => {
+    if (currentResult && !document.getElementById("soraout").classList.contains("hidden")) renderSora(currentResult);
+  });
+}
+document.getElementById("soracopy").addEventListener("click", (event) => {
+  navigator.clipboard.writeText(document.getElementById("soralink").href).then(() => {
+    const button = event.target;
+    const original = button.textContent;
+    button.textContent = "コピーしました";
+    setTimeout(() => { button.textContent = original; }, 1600);
+  });
+});
+
+document.getElementById("file").addEventListener("change", event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  // 動画などを選ぶと readAsText が固まる。IGCは1時間の飛行でも数百KB
+  if (file.size > 20 * 1024 * 1024) {
+    const err = document.getElementById("err");
+    err.textContent = "ファイルが大きすぎます（" + Math.round(file.size / 1024 / 1024) + "MB）。"
+      + "IGCファイルではないようです。動画や写真を選んでいないかご確認ください。";
+    err.classList.remove("hidden");
+    document.getElementById("out").classList.add("hidden");
+    return;
+  }
+  // 飛行IDは日付ベース。ファイル名にはパイロットの識別子が入ることがあるので使わない。
+  const reader = new FileReader();
+  reader.onload = () => {
+    currentText = reader.result;
+    run();
+    if (currentResult) {
+      currentFlightId = jstDateText(currentResult.igc.flightDate, currentResult.takeoff.seconds).replace(/-/g, "")
+                        + "-" + jstHm(currentResult.takeoff.seconds).replace(":", "");
+    }
+  };
+  reader.readAsText(file, "utf-8");
+});
+
+for (const id of ["band", "dt"]) {
+  document.getElementById(id).addEventListener("change", () => { if (currentText) run(); });
+}
+
+// 局の一覧は「その飛行の日に記録がある局」だけに絞る（関係ない局を選ばせない）
+function refreshWpr() {
+  const select = document.getElementById("station");
+  const card = document.getElementById("wprcard");
+  const button = document.getElementById("wprcsv");
+  if (!currentResult || !wprRecords) { card.classList.add("hidden"); button.disabled = true; return; }
+
+  const startMs = flightJstMs(currentResult, currentResult.takeoff.seconds);
+  const endMs = flightJstMs(currentResult, currentResult.landing.seconds);
+  const margin = 3600 * 1000;
+  const available = [...new Set(wprRecords
+    .filter(r => r.jstMs >= startMs - margin && r.jstMs <= endMs + margin)
+    .map(r => r.station))];
+
+  const previous = select.value;
+  select.innerHTML = available.map(s => `<option value="${s}">${s}</option>`).join("");
+  select.disabled = available.length === 0;
+  if (available.includes(previous)) select.value = previous;
+
+  if (!available.length) {
+    card.classList.remove("hidden");
+    table(document.getElementById("wprtable"), ["結果"],
+      [["この飛行の日・時刻に対応する観測がCSVにありません（収集していない日か、局が違います）"]]);
+    button.disabled = true;
+    return;
+  }
+
+  const rows = matchWpr(currentResult, wprRecords, select.value);
+  renderWpr(currentResult, rows);
+  card.classList.remove("hidden");
+  button.disabled = !rows.some(r => r.band);
+}
+
+document.getElementById("wprfile").addEventListener("change", event => {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    try {
+      wprRecords = parseWprCsv(reader.result);
+      refreshWpr();
+    } catch (e) {
+      wprRecords = null;
+      const err = document.getElementById("err");
+      err.textContent = "プロファイラCSVを読み取れませんでした: " + e.message;
+      err.classList.remove("hidden");
+    }
+  };
+  reader.readAsText(file, "utf-8");
+});
+
+document.getElementById("station").addEventListener("change", refreshWpr);
+
+document.getElementById("wprcsv").addEventListener("click", () => {
+  if (!currentResult || !wprRecords) return;
+  const rows = matchWpr(currentResult, wprRecords, document.getElementById("station").value);
+  const csv = buildWprCsv(currentResult, rows, currentFlightId);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `igc-wpr-${currentFlightId}.csv`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+});
+
+document.getElementById("csv").addEventListener("click", () => {
+  if (!currentResult) return;
+  const csv = buildCsv(currentResult, currentFlightId);
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
+  const link = document.createElement("a");
+  link.href = URL.createObjectURL(blob);
+  link.download = `igc-wind-${currentFlightId}.csv`;
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+});
+</script>
+
+<p class="note" style="margin-top:24px">
+  <strong>書き出した2つのCSVは個人データを含みません</strong>（高度帯ごとの集約値だけ。座標・軌跡・パイロット名・離着陸地点は入りません。突き合わせCSVには<strong>局名も入りません</strong>）。外部AIに相談できます。<br>
+  <strong>IGCファイルそのものは外部に渡さないでください。</strong>また、外部に渡すときに<strong>飛行場所や局名を書き添えないでください</strong> — CSVから消した意味がなくなります。
+</p>
+
+</body>
+</html>
