@@ -58,20 +58,25 @@ const WIND_PRESETS = [
     rows: [[0, 120, 6], [500, 150, 9], [1000, 180, 12], [2000, 220, 15], [3000, 250, 18], [5000, 270, 24]] },
 ];
 const toRowObj = ([ft, dir, kt]) => ({ ft, dir, kt });
+const MAX_WIND_FT = 60_000;
+const MAX_WIND_KT = 150;
+const MIN_PRESSURE_HPA = 800;
+const MAX_PRESSURE_HPA = 1_100;
 
 // URLの ?w=ft,dir,kt;ft,dir,kt;… から風テーブルを復元(共有シード)
 function decodeWind(s) {
   if (!s) return null;
   const rows = s.split(';')
     .map((p) => p.split(',').map(Number))
-    .filter((v) => v.length === 3 && v.every(Number.isFinite) && v[0] >= 0 && v[2] >= 0)
+    .filter((v) => v.length === 3 && v.every(Number.isFinite)
+      && v[0] >= 0 && v[0] <= MAX_WIND_FT && v[2] >= 0 && v[2] <= MAX_WIND_KT)
     .map(toRowObj)
     .sort((a, b) => a.ft - b.ft);
   return rows.length ? rows : null;
 }
 const encodeWind = (rows) => rows.map((r) => `${r.ft},${r.dir},${r.kt}`).join(';');
 const shareUrl = () =>
-  `${location.origin}${location.pathname}?a=${AREA.lon.toFixed(4)},${AREA.lat.toFixed(4)}&w=${encodeWind(PIBAL)}${setupMode ? '&setup=1' : ''}${devMode ? '&dev=1' : ''}`;
+  `${location.origin}${location.pathname}?a=${AREA.lon.toFixed(4)},${AREA.lat.toFixed(4)}&w=${encodeWind(PIBAL)}${setupMode ? '&setup=1' : ''}${devMode ? '&dev=1' : ''}${devMode && !igcMode && crewOption.checked ? '&road=1' : ''}`;
 
 let PIBAL = decodeWind(new URLSearchParams(location.search).get('w'))
   || WIND_PRESETS[0].rows.map(toRowObj);
@@ -432,6 +437,8 @@ let flightReady = false; // 離陸前のキー入力を無視する
 let started = false;     // 離陸済みかどうか(物理・時計は離陸後のみ進む)
 let remaining = TASK_LIMIT_S;
 let expired = false;
+let groundCrew = null; // 選択時だけ読み込む。飛行・採点には関与しない
+let groundCrewStarting = false;
 
 // 一人称視点(ゴンドラ視点)。目の位置は固定し、視線方向だけをドラッグで回す
 let fpvYaw = 0, fpvPitch = 0;
@@ -470,6 +477,9 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyV') toggleFpv();
   if (e.code === 'KeyM' && flightReady) dropMarker();
   if (e.code === 'KeyP') togglePibal();
+  if (e.code === 'KeyC' && !e.repeat && !e.target.closest?.('input, textarea, select, [contenteditable="true"]')) {
+    groundCrew?.toggleRadio();
+  }
   if (e.code === 'KeyW' && devMode) toggleWindCalcDebug(); // 隠しコマンド: 気圧配置モデルの計算過程表示(devMode専用)
   if (e.code >= 'Digit1' && e.code <= 'Digit4') {
     timeScale = [1, 2, 4, 8][Number(e.code.slice(5)) - 1];
@@ -915,6 +925,8 @@ const hasChosenArea = mainParams.has('a'); // 住所検索や共有URLなどで�
 //   なぞる … 高度だけ実測どおりに動かし、水平は風モデルに任せる(検証)
 // エリアはIGCの離陸地点から決まるので、先にファイルを読んでから地形を組む
 const igcMode = mainParams.has('igc');
+const crewOption = document.getElementById('crew-enabled');
+crewOption.checked = devMode && !igcMode && mainParams.get('road') === '1';
 const igcPicked = igcMode ? await selectIgcFlight() : null;
 const igcFlight = igcPicked ? igcPicked.flight : null;
 const igcViewMode = igcPicked ? igcPicked.mode : null;   // 'view' | 'fly' | 'trace'
@@ -1009,9 +1021,9 @@ function setupWindEditor() {
 
 function renderEditorRows(rows) {
   document.getElementById('wind-editor').innerHTML = rows.map((r) =>
-    `<tr><td><input type="number" class="w-ft" step="100" min="0" value="${r.ft}"></td>` +
+    `<tr><td><input type="number" class="w-ft" step="100" min="0" max="${MAX_WIND_FT}" value="${r.ft}"></td>` +
     `<td><input type="number" class="w-dir" step="10" min="0" max="360" value="${r.dir}"></td>` +
-    `<td><input type="number" class="w-kt" step="1" min="0" value="${r.kt}"></td>` +
+    `<td><input type="number" class="w-kt" step="1" min="0" max="${MAX_WIND_KT}" value="${r.kt}"></td>` +
     `<td><button type="button" class="del" title="行を削除">×</button></td></tr>`).join('');
 }
 
@@ -1023,7 +1035,7 @@ function readEditorRows() {
       kt: Number(tr.querySelector('.w-kt').value),
     }))
     .filter((r) => Number.isFinite(r.ft) && Number.isFinite(r.dir) && Number.isFinite(r.kt)
-      && r.ft >= 0 && r.kt >= 0)
+      && r.ft >= 0 && r.ft <= MAX_WIND_FT && r.kt >= 0 && r.kt <= MAX_WIND_KT)
     .sort((a, b) => a.ft - b.ft);
 }
 
@@ -1529,9 +1541,9 @@ document.getElementById('wx-apply-blh').addEventListener('click', () => {
 
 function renderDevEditorRows(rows) {
   document.getElementById('wind-editor-dev').innerHTML = rows.map((r) =>
-    `<tr><td><input type="number" class="w-ft" step="100" min="0" value="${r.ft}"></td>` +
+    `<tr><td><input type="number" class="w-ft" step="100" min="0" max="${MAX_WIND_FT}" value="${r.ft}"></td>` +
     `<td><input type="number" class="w-dir" step="10" min="0" max="360" value="${r.dir}"></td>` +
-    `<td><input type="number" class="w-kt" step="1" min="0" value="${r.kt}"></td>` +
+    `<td><input type="number" class="w-kt" step="1" min="0" max="${MAX_WIND_KT}" value="${r.kt}"></td>` +
     `<td><button type="button" class="del" title="行を削除">×</button></td></tr>`).join('');
 }
 
@@ -1543,7 +1555,7 @@ function readDevEditorRows() {
       kt: Number(tr.querySelector('.w-kt').value),
     }))
     .filter((r) => Number.isFinite(r.ft) && Number.isFinite(r.dir) && Number.isFinite(r.kt)
-      && r.ft >= 0 && r.kt >= 0)
+      && r.ft >= 0 && r.ft <= MAX_WIND_FT && r.kt >= 0 && r.kt <= MAX_WIND_KT)
     .sort((a, b) => a.ft - b.ft);
 }
 
@@ -2108,7 +2120,7 @@ function renderPressureTable() {
       <td style="color:${p.type === 'h' ? '#ff8a8a' : '#8ab8ff'}">${p.type === 'h' ? '高(H)' : '低(L)'}</td>
       <td>${p.lat.toFixed(2)}N</td>
       <td>${p.lon.toFixed(2)}E</td>
-      <td><input type="number" class="p-hpa" step="1" value="${p.hpa}"></td>
+      <td><input type="number" class="p-hpa" step="1" min="${MIN_PRESSURE_HPA}" max="${MAX_PRESSURE_HPA}" value="${p.hpa}"></td>
       <td><button type="button" class="del" title="削除">×</button></td>
     </tr>`).join('');
   updateWindCalc();
@@ -2130,7 +2142,13 @@ document.getElementById('pressure-clear').addEventListener('click', () => {
 document.getElementById('pressure-editor-dev').addEventListener('input', (e) => {
   if (!e.target.classList.contains('p-hpa')) return;
   const i = Number(e.target.closest('tr').dataset.i);
-  devPressure.points[i].hpa = Number(e.target.value);
+  const hpa = Number(e.target.value);
+  if (!Number.isFinite(hpa) || hpa < MIN_PRESSURE_HPA || hpa > MAX_PRESSURE_HPA) {
+    e.target.setCustomValidity(`${MIN_PRESSURE_HPA}〜${MAX_PRESSURE_HPA} hPaで入力してください`);
+    return;
+  }
+  e.target.setCustomValidity('');
+  devPressure.points[i].hpa = hpa;
   updateWindCalc();
   updateDiurnalJudgment();
 });
@@ -2236,12 +2254,16 @@ function localXZToLonLat(x, z) {
 }
 
 function windCalcReadParams() {
+  const bounded = (id, min, max, fallback) => {
+    const v = Number(document.getElementById(id).value);
+    return Number.isFinite(v) ? THREE.MathUtils.clamp(v, min, max) : fallback;
+  };
   return {
-    K: Number(document.getElementById('wc-K').value) || 0,
-    L: Math.max(1, Number(document.getElementById('wc-L').value) || 1),
-    damping: (Number(document.getElementById('wc-damp').value) || 0) / 100,
-    angle: Number(document.getElementById('wc-angle').value) || 0,
-    layerFt: Number(document.getElementById('wc-layer').value) || 1000,
+    K: bounded('wc-K', 0, 100, 0),
+    L: bounded('wc-L', 1, 2000, 1),
+    damping: bounded('wc-damp', 0, 100, 0) / 100,
+    angle: bounded('wc-angle', -180, 180, 0),
+    layerFt: bounded('wc-layer', 100, 10_000, 1000),
   };
 }
 
@@ -2625,6 +2647,22 @@ function startFlight(x, z) {
   document.getElementById('dev-briefing').style.display = 'none';
   flightReady = true;
   started = true;
+  if (devMode && !igcMode && crewOption.checked && !groundCrewStarting) {
+    groundCrewStarting = true;
+    // 非同期取得中に気球が移動しても、車の出発地点と宣言目標は変えない。
+    const goal = pdgActive() ? pdg.goals[0] : TARGET_XZ;
+    const launch = { x, z };
+    const crewGoal = { x: goal.x, z: goal.z };
+    document.getElementById('ground-crew').hidden = false;
+    import('./groundCrew.js').then(({ createGroundCrew }) => {
+      groundCrew = createGroundCrew({ scene, terrain, area: AREA, launch, goal: crewGoal,
+        goalLabel: pdgActive() ? '宣言目標' : 'ターゲット', windAt,
+        getBalloon: () => state.pos });
+    }).catch((err) => {
+      document.getElementById('crew-status').textContent = 'クルーを読み込めませんでした。飛行は続けられます。';
+      console.warn('地上クルーの読み込みに失敗:', err);
+    });
+  }
 }
 
 const balloon = buildBalloon();
@@ -3045,6 +3083,7 @@ renderer.setAnimationLoop(() => {
     stepMarker(dt);
     stepClock(dt);
     stepPdgLanding();
+    groundCrew?.update(dt);
     updateSounds(w.kt);
 
     balloon.group.position.copy(state.pos);

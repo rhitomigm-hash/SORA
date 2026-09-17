@@ -125,6 +125,19 @@
   #help a { color: #9ecfff; }
   #credit { bottom: 12px; right: 12px; font-size: 11px; color: #b8c4d0; max-width: 260px; }
   #credit a { color: #9ecfff; }
+  #ground-crew { left: 12px; bottom: 150px; max-width: min(300px, calc(100vw - 52px)); font-size: 12px; }
+  #ground-crew[hidden] { display: none; }
+  #ground-crew summary { cursor: pointer; min-height: 28px; display: flex; align-items: center; }
+  #ground-crew summary::after { content: ' ▸'; margin-left: 8px; }
+  #ground-crew[open] summary::after { content: ' ▾'; }
+  #ground-crew p { margin: 6px 0; line-height: 1.5; }
+  #crew-radio { max-height: 26vh; overflow-y: auto; }
+  #crew-radio button { min-height: 44px; padding: 6px 12px; background: #2e6da4; color: white; border: 0; border-radius: 5px; cursor: pointer; }
+  #crew-status { color: #b8c4d0; }
+  .crew-choice { display: block; margin: 12px 0; padding: 10px; border: 1px solid #345a7a; border-radius: 6px; }
+  .crew-choice label { display: flex; align-items: center; gap: 8px; min-height: 44px; cursor: pointer; }
+  .crew-choice input { width: 18px; height: 18px; }
+  @media (max-width: 600px) { #ground-crew { left: 8px; max-width: calc(100vw - 52px); } }
   #credit summary {
     cursor: pointer; list-style: none; text-align: right; white-space: nowrap;
   }
@@ -387,6 +400,11 @@
 <div id="dev-briefing" style="display:none">
   <div class="b-panel">
     <div class="b-title" id="dev-briefing-title">タスクブリーフィング(開発途中版)</div>
+    <div class="crew-choice">
+      <label><input id="crew-enabled" type="checkbox">地上クルーあり（開発途中）</label>
+      <div class="b-hint">白は気球を追尾、青は目標付近へ先行・待機します。離陸後に道路を読み込み、無線(C)で現在地の地上風を聞けます。PDGでは宣言目標へ向かいます。</div>
+      <div class="b-hint">青は目標から100m以内に入らないゲーム内設定です。実競技の規則・安全基準ではありません。</div>
+    </div>
     <div class="b-cols">
       <div class="b-left">
         <table class="tasksheet">
@@ -462,11 +480,11 @@
       <div class="b-windcalc">
         <div class="b-sub">風の計算(実験) — 気圧配置から地上風を計算し、離陸時にフライトへ反映します</div>
         <div class="windcalc-params">
-          <label>K(勾配→風速kt) <input type="number" id="wc-K" step="0.5" value="8"></label>
-          <label>L(減衰距離km) <input type="number" id="wc-L" step="10" value="500"></label>
-          <label>減速係数(%) <input type="number" id="wc-damp" step="1" value="65"></label>
-          <label>角度補正(°) <input type="number" id="wc-angle" step="1" value="20"></label>
-          <label>地上層厚み(ft) <input type="number" id="wc-layer" step="100" value="1000"></label>
+          <label>K(勾配→風速kt) <input type="number" id="wc-K" step="0.5" min="0" max="100" value="8"></label>
+          <label>L(減衰距離km) <input type="number" id="wc-L" step="10" min="1" max="2000" value="500"></label>
+          <label>減速係数(%) <input type="number" id="wc-damp" step="1" min="0" max="100" value="65"></label>
+          <label>角度補正(°) <input type="number" id="wc-angle" step="1" min="-180" max="180" value="20"></label>
+          <label>地上層厚み(ft) <input type="number" id="wc-layer" step="100" min="100" max="10000" value="1000"></label>
         </div>
         <pre class="windcalc-result" id="windcalc-result">H・Lを2点以上置くと、計算結果がここに表示されます。</pre>
       </div>
@@ -613,6 +631,7 @@
   </div>
   <a id="setup-link" href="#" style="color:#9ecfff;">本格モード</a>
   / <a id="howto-link" href="#" style="color:#9ecfff;">使い方</a>
+  / <a href="../tutorial.html" target="_blank" rel="noopener" style="color:#9ecfff;">チュートリアル詳細</a>
 </div>
 
 <div id="touch-controls">
@@ -657,6 +676,7 @@
     最新版が遊べる環境は、Instagramでお知らせします。</div>
     <button id="setup-try" type="button" class="howto-try-btn">お試しでやってみる(最新版ではありません)</button>
     <button id="setup-dev" type="button" class="howto-dev-btn">開発途中版(新機能を試す・不安定です)</button>
+    <div class="howto-note">開発途中版では、離陸前に「地上クルーあり」を選べます。</div>
     <div class="howto-label">飛行ログ</div>
     <div class="howto-note">お手元の飛行ログ(IGCファイル)を3Dで表示します。
     軌跡を地面まで下ろした板で描き、実測の風で飛ぶこともできます。
@@ -668,10 +688,22 @@
 
 
 
+<details id="ground-crew" class="panel" hidden>
+  <summary>地上クルー・無線(C)</summary>
+  <p id="crew-status" role="status">道路・クルーを準備中…（飛行は続けられます）</p>
+  <div id="crew-radio">
+    <p id="crew-white"></p>
+    <p id="crew-blue"></p>
+    <button id="crew-query" type="button">現在地の風を聞く</button>
+    <p class="b-hint">風はゲーム内の値です。風向はFROM・磁方位。</p>
+  </div>
+</details>
+
 <details id="credit" class="panel">
   <summary>出典</summary>
   <a href="https://maps.gsi.go.jp/development/ichiran.html" target="_blank" rel="noopener">国土地理院 地理院タイル</a>(標高タイル・全国最新写真)/
   住所検索: <a href="https://msearch.gsi.go.jp/address-search/" target="_blank" rel="noopener">国土地理院 Address Search API</a>
+  <span id="credit-road" hidden><br>道路: 国土地理院 地理院ベクトルタイル（試験提供）</span>
 </details>
 
 <div id="loading" style="display:none">
